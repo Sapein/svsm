@@ -45,37 +45,41 @@ The language in VSM is VSL (Void System Language) a DSL created for this project
 ##### Syntax
 
 ```ebnf
-stmt = expr* comment*
-expr := literal | fncall | map | list | path | listref | mapref
-expr := '(' expr* ')'
-expr := 'import' path
+stmt     := expr* comment*;
+expr     := literal | fncall | map | list | path | listref | mapref;
+expr     := '(' expr* ')';
+expr     := 'import' path;
 
-comment := "#" .*
+comment  := "#" .*;
 
-path := abspath | relpath
-abspath := '/' ([^\s] | abspath)*
-relpath := './' ([^\s] | relpath)*
+path  := abspath | relpath;
+pathabs  :=  '/' ([^\s] | STRING | pathabs)*;
+pathrel  := './' ([^\s] | STRING | pathrel)*;
 
-fncall := "FNAME" expr*
-map := '{' mapattr* '}'
-mapattr := "SYMBOL" '=' expr ';'
-list := '[' listattr* ']'
-listattr := expr ','
+fncall   := "FNAME" expr*;
 
-mapref := "SYMBOL" '.' "VAL"
-listref := "NAME" '[' "NUMBER" ']'
-listref := "NAME" '.' "SYMBOL"
-literal := "NUMBER" | "STRING" | "BOOL" | "SYMBOL"
+map      := '{' mapattr* '}';
+mapattr  := "SYMBOL" '=' expr ';';
+
+list     := '[' listattr* ']';
+listattr := expr ',';
+
+mapref   := "SYMBOL" '.' "VAL";
+listref  := "NAME" '[' "NUMBER" ']';
+listref  := "NAME" '.' "SYMBOL";
+
+literal  := "NUMBER" | "STRING" | "BOOL" | "SYMBOL";
 ```
 
 ##### Lexical
 ```
-"NUMBER" := "DIGIT"+ ( "." "DIGIT"+ )*
-"DIGIT" := "0" .. "9"
-"STRING" := '"' [ (. - '"' )* ] '"'
-"STRING" := '"' [ (. - "'" )* ] '"'
-"BOOL" := "true" | "false"
-"SYMBOL" := ("a" .. "z")* | "." | "_" | "-" 
+STRING := '"' [ (. - '"' )* ] '"'
+STRING := "'" [ (. - "'" )* ] "'"
+BOOL   := "true" | "false"
+NUMBER := DIGIT+ ( "." DIGIT+ )?
+SYMBOL := ALPHA+ ( ALPHA | DIGIT | "-" )*
+ALPHA  := "a" ... "z" | "A" ... "Z" | "_";
+DIGIT  := "0" ... "9";
 ```
 
 

@@ -11,15 +11,18 @@ lazy_static! {
 struct Lexer {
     input: Vec<char>,
     pos: usize,
+
+    row: usize,
+    col: usize
 }
 
 #[derive(Debug, PartialEq, Clone)]
 enum Token {
-    String(Vec<char>),
-    Path(Vec<char>),
+    String(Rc<[char]>),
+    Path(Rc<[char]>),
     Boolean(bool),
-    Number(Vec<char>),
-    Symbol(Vec<char>),
+    Number(Rc<[char]>),
+    Symbol(Rc<[char]>),
     Semicolon,
     Comma,
     OpenBrace,
@@ -28,6 +31,8 @@ enum Token {
     ClosedBracket,
     Equal,
     Dot,
+
+    Discard,
 }
 
 
@@ -36,6 +41,9 @@ impl Lexer {
         Self {
             input,
             pos: 0,
+
+            col: 1,
+            row: 1,
         }
     }
 
@@ -62,8 +70,11 @@ impl Lexer {
     }
 
     fn advance(&mut self) -> &Self {
-        if self.pos + 1 <= self.input.len() {
-            self.pos += 1;
+        self.pos += 1;
+        self.col += 1;
+        if self.get_char() == '\n' {
+            self.row += 1;
+            self.col = 1;
         }
         self
     }
@@ -73,22 +84,22 @@ impl Lexer {
         self.get_char()
     }
 
-    fn advance_until(&mut self, pattern: &Regex) -> &Self {
-        while !pattern.is_match(&self.get_str()) && self.get_char() != '\0' {
-            self.advance();
-        }
-        self
-    }
-
     fn collect_to(&mut self, pattern: &Regex) -> Vec<char> {
         let mut tokens: Vec<char> = vec!(self.get_char());
         self.advance();
-        while !pattern.is_match(&self.get_str()){
+        while !pattern.is_match(&self.get_str()) && self.peek_next() != '\0'{
             tokens.push(self.get_char());
             self.advance();
         }
         tokens.push(self.get_char());
         tokens
+    }
+
+    fn advance_until(&mut self, pattern: &Regex) -> &Self {
+        while !pattern.is_match(&self.peek_next_str()) && self.peek_next() != '\0' {
+            self.advance();
+        }
+        self
     }
 
     fn collect_until(&mut self, pattern: &Regex) -> Vec<char> {
@@ -109,64 +120,93 @@ impl Lexer {
     }
 
     pub fn tokenize_input(&mut self) -> Rc<[Token]> {
-        let mut results: Vec<Token> = vec!();
+        let mut tokens: Vec<Token> = vec!();
+        while self.pos <= self.input.len() {
+            let token = self.next_token();
+            match token {
+                Token::Discard => (),
+                _ => tokens.push(token)
+            }
+        }
+        tokens.into()
+    }
 
-        while self.pos < self.input.len() {
-            match self.get_char() {
-                '#' => {self.advance_until(&Regex::new("\\n").unwrap());},
-                '\'' => results.push({Token::String(self.collect_to(&Regex::new("'").unwrap()))}),
-                '"' => results.push({Token::String(self.collect_to(&Regex::new("\"").unwrap()))}),
-                '/' => results.push(Token::Path(self.collect_until(&BREAKING))),
-                '.' if self.peek_next() == '/' => results.push(Token::Path(self.collect_until(&BREAKING))),
-
-                't' => {
-                    let result = self.collect_while(&VALID_SYMBOL);
-                    if result.iter().collect::<String>() == "true" {
-                        results.push(Token::Boolean(true));
-                    }
+    pub fn next_token(&mut self) -> Token {
+        let token = match self.get_char() {
+            '#' => {
+                self.advance_until(&Regex::new("\\n").unwrap());
+                Token::Discard
+            },
+            '\'' => {
+                let (row, col) = (self.row, self.col);
+                let result = self.collect_to(&Regex::new("'").unwrap());
+                if result.last().unwrap() != &'\'' {
+                    panic!("String opened on line {}, char {} not closed until end of file!\n String: {}", row, col, result.iter().collect::<String>());
                 }
-
-                'f' => {
-                    let result = self.collect_while(&VALID_SYMBOL);
-                    if result.iter().collect::<String>() == "false" {
-                        results.push(Token::Boolean(false));
-                    }
+                Token::String(result.into())
+            },
+            '"' => {
+                let (row, col) = (self.row, self.col);
+                let result = self.collect_to(&Regex::new("\"").unwrap());
+                if result.last().unwrap() != &'"' {
+                    panic!("String opened on line {}, char {} not closed until end of file!\n String: {}", row, col, result.iter().collect::<String>());
                 }
+                Token::String(result.into())
+            }
+            '/' => Token::Path(self.collect_until(&BREAKING).into()),
+            '.' if self.peek_next() == '/' => Token::Path(self.collect_until(&BREAKING).into()),
 
-                _ if self.get_char().is_ascii_digit() => {
-                    let mut result: String = String::from(self.get_char());
-                    while Regex::new("^[0-9]+(?:\\.[0-9]+)?$").unwrap().is_match(&result) && self.get_char() != '\0'{
-                        result.push(self.next());
-                        if self.get_char() == '.' {
-                            result.push(self.next())
-                        }
-                    }
-                    if WHITESPACE.is_match(&self.get_str()) || self.get_char() == '\0' { result.pop(); }
-                    results.push(Token::Number(result.chars().collect()));
-                }
-
-                '{' => results.push(Token::OpenBrace),
-                '}' => results.push(Token::CloseBrace),
-                '[' => results.push(Token::OpenBracket),
-                ']' => results.push(Token::ClosedBracket),
-                ';' => results.push(Token::Semicolon),
-                ',' => results.push(Token::Comma),
-                '=' => results.push(Token::Equal),
-                '.' => results.push(Token::Dot),
-
-
-                _ if WHITESPACE.is_match(&self.get_str()) => (),
-                _ => {
-                    let result = self.collect_while(&VALID_SYMBOL);
-                    if result.len() == 0 {
-                        panic!("Unknown symbol: {}", self.get_str());
-                    }
-                    results.push(Token::Symbol(self.collect_while(&VALID_SYMBOL)));
+            't' => {
+                let result = self.collect_while(&VALID_SYMBOL);
+                if result.iter().collect::<String>() == "true" {
+                    Token::Boolean(true)
+                } else {
+                    Token::Symbol(result.into())
                 }
             }
-            self.advance();
-        }
-        results.into()
+
+            'f' => {
+                let result = self.collect_while(&VALID_SYMBOL);
+                if result.iter().collect::<String>() == "false" {
+                    Token::Boolean(false)
+                } else {
+                    Token::Symbol(result.into())
+                }
+            }
+
+            _ if self.get_char().is_ascii_digit() => {
+                let mut result: String = String::from(self.get_char());
+                while Regex::new("^[0-9]+(?:\\.[0-9]+)?$").unwrap().is_match(&result) && self.get_char() != '\0'{
+                    result.push(self.next());
+                    if self.get_char() == '.' {
+                        result.push(self.next())
+                    }
+                }
+                if WHITESPACE.is_match(&self.get_str()) || self.get_char() == '\0' { result.pop(); }
+                Token::Number(result.chars().collect())
+            }
+
+            '{' => Token::OpenBrace,
+            '}' => Token::CloseBrace,
+            '[' => Token::OpenBracket,
+            ']' => Token::ClosedBracket,
+            ';' => Token::Semicolon,
+            ',' => Token::Comma,
+            '=' => Token::Equal,
+            '.' => Token::Dot,
+
+
+            _ if WHITESPACE.is_match(&self.get_str()) => Token::Discard,
+            _ => {
+                let result = self.collect_while(&VALID_SYMBOL);
+                if result.len() == 0 {
+                    panic!("Unexpected Symbol {} on line {}, char {}", self.get_str(), self.row, self.col);
+                }
+                Token::Symbol(self.collect_while(&VALID_SYMBOL).into())
+            }
+        };
+        self.advance();
+        token
     }
 }
 

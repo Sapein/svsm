@@ -34,27 +34,37 @@ vsm | void-system-manager (opts) (command)
 
 ## VSM Files  
 ### Configuration  
-    VSM Configuration is generally done through the ‘config.vsm’ file. This is similar to the configuration.nix file found on most nix installs, the purpose of which is to track the current ‘main’ state of the system. 
+VSM Configuration is generally done through the ‘config.vsm’ file. This is
+similar to the configuration.nix file found on most nix installs, the
+purpose of which is to track the current ‘main’ state of the system. 
 
-The language in VSM is VSL (Void System Language) a DSL created for this project.
+The language in VSM is VSL (Void System Language) a DSL created for this
+project.
 
 #### Design Considerations
-    VSL is designed as a very restricted DSL that focuses on being entirely declarative. To that end, VSL does not have a built-in method of defining functions or permitting side effects, outside of builtins provided by the language. Furthermore, usual programming operations are heavily restricted to that end. Additionally, the language is intended to be kept simple so that it’s easy to create alternative implementations. 
+VSL is designed as a very restricted DSL that focuses on being entirely
+declarative. To that end, VSL does not have a built-in method of defining
+functions or permitting side effects, outside of builtins provided by the
+language. Furthermore, usual programming operations are heavily restricted to
+that end. Additionally, the language is intended to be kept simple so that it’s
+easy to create alternative implementations. 
 
 #### Grammar
 ##### Syntax
 
 ```ebnf
 stmt     := expr* comment*;
-expr     := literal | fncall | map | list | path | listref | mapref;
+expr     := literal | fncall | map | list | path | listref | mapref | vardec;
 expr     := '(' expr* ')';
 expr     := 'import' path;
 
 comment  := "#" .*;
 
-path  := abspath | relpath;
+vardec   := (SYMBOL | mapref | listref) '=' expr;
+
+path     := abspath | relpath;
 pathabs  :=  '/' ([^\s] | STRING | pathabs)*;
-pathrel  := './' ([^\s] | STRING | pathrel)*;
+pathrel  := './' ([^\s] | STRING | pathabs)*;
 
 fncall   := "FNAME" expr*;
 
@@ -66,7 +76,6 @@ listattr := expr ',';
 
 mapref   := "SYMBOL" '.' "VAL";
 listref  := "NAME" '[' "NUMBER" ']';
-listref  := "NAME" '.' "SYMBOL";
 
 literal  := "NUMBER" | "STRING" | "BOOL" | "SYMBOL";
 ```
@@ -84,43 +93,65 @@ DIGIT  := "0" ... "9";
 
 
 #### Data Types
-    The datatypes in VSL are as follows:
+The data-types in VSL are as follows:
+
 ##### Strings
-    A string is defined as any visible character, plus whitespace, between either two double quotes (“) or single quotes (‘) with no way to escape, although it does accept newlines. 
+A string is defined as any visible character, plus whitespace, between either
+two double quotes (“) or single quotes (‘) with no way to escape, although it
+does accept newlines. This is in accordance with the STRING lexical rules.
+
 ##### Numbers
+A Number is any number greater than or equal to zero.
+
 ##### Boolean
+A boolean represents True or False.
+
 ##### Functions
-    Functions are not definable in VSL, they are only provided by the implementation. This is a deliberate design decision, as VSL is intended to be entirely declarative, and it also simplifies the implementation. 
+Functions are not definable in VSL, they are only provided by the
+implementation. This is a deliberate design decision, as VSL is intended to be
+entirely declarative, and it also simplifies the implementation. 
+
 ##### Map
-    A map is a dictionary or an ‘attr set’ in Nix.
+A map is a dictionary, in that it's elements are accessible through a symbol.
+A map is equivalent to 'attr set' in Nix.
+
 ##### List
-    A list is a list
+A list is a list.
+
 ##### Path
-    A path is a file system path.
+A path is a file system path.
+
 ##### Package
-    A void package
+A void package
+
 ##### Package Repository
-    A void package repository
+A void package repository
+
 ##### Void Package Repository (Subclass of Git Repo)
-    A clone of the void packages repository
+A clone of the void packages repository
+
 ##### Git Repo.
+A Git Repository.
+
 ##### Symbol
-##### Maybe
-##### Either
+A symbol is similar to a string, but in that it is an indivisible unit. They may refer to themselves,
+function names, etc.
+
+##### Option
+This type is purely for 'function arguments'. An Option<T> just means that the argument can be omitted.
 
 #### Builtins
-
 ##### Functions
-    As VSL/VSM does not have an inbuilt function definition or declaration syntax, this document uses the following syntax for function declaration:
+As VSL/VSM does not have an inbuilt function definition or declaration syntax, this document uses the following syntax for function declaration:
 
 `fn [name] [arg1](:[type1]), [arg2], ..., [argN] (-> [ReturnType])`
 
-github-repo user: string, repo: string -> string
-gh-r user: string, repo: string -> string
+`github-repo user: string, repo: string -> string`
+`gh-r user: string, repo: string -> string`
 
 
-voidpackages-repo, user: string
-vp-r user: string
+`voidpackages-repo, user: string`
+`vp-r user: string`
 
 `add_line line: string`
 
@@ -134,14 +165,16 @@ vp-r user: string
 `use_file to_use: path, repo: Option<repo>`
 
 
-join strings: [string] -> string
+`join strings: [string] -> string`
+
+`print string: [string]`
 
 
 
 Example
 ```nix
 system.config = {
-    users= [
+    users = [
         {
             username = 'sapeint';
             hashedPassword = 'PASS';

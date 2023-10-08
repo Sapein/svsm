@@ -46,7 +46,6 @@ pub struct SmartToken {
 #[derive(Debug, PartialEq, Clone)]
 pub enum Token {
     String(Rc<str>),
-    Path(Rc<str>),
     Boolean(bool),
     Number(f64),
     Symbol(Rc<str>),
@@ -101,11 +100,6 @@ impl Lexer {
         self
     }
 
-    pub fn toggle_eof(mut self) -> Self {
-        self.discard_eof = !self.discard_eof;
-        self
-    }
-
     /// Looks at the next character.
     fn peek(&self) -> char {
         if self.pos + 1 >= self.input.len() {
@@ -149,20 +143,6 @@ impl Lexer {
         self.get_char()
     }
 
-    fn previous(&mut self) -> char {
-        if self.pos > 0 && self.pos - 1 >= 0 {
-            return self.input[self.pos - 1];
-        }
-        self.input[self.pos]
-    }
-
-    fn previous_string(&mut self) -> String {
-        if self.pos > 0 && self.pos - 1 >= 0 {
-            return String::from(self.input[self.pos - 1]);
-        }
-        String::from(self.input[self.pos])
-    }
-
     /// Collect all characters into one vector until the pattern matches, including the character that made the match.
     ///
     /// # Arguments
@@ -189,36 +169,11 @@ impl Lexer {
         self
     }
 
-    /// Collect the input, until the pattern matches, and do not include the character that matched.
-    ///
-    /// # Arguments
-    /// * `pattern`  - A Regex pattern to match on.
-    fn collect_until(&mut self, pattern: &Regex) -> Vec<char> {
-        let mut token: Vec<char> = vec!(self.get_char());
-        while !pattern.is_match(&self.peek_str()) && self.peek() != '\0' {
-            token.push(self.next());
-        }
-        token
-    }
-
     /// Collect the input while the pattern matches.
     ///
     /// # Arguments
     /// * `pattern`  - A Regex pattern to match on.
     fn collect_while(&mut self, pattern: &Regex) -> Vec<char> {
-        let mut token: Vec<char> = vec!();
-        while pattern.is_match(self.get_str().as_str()) && self.get_char() != '\0' {
-            token.push(self.get_char());
-            self.advance();
-        }
-        token
-    }
-
-    /// Collect the input while the pattern matches.
-    ///
-    /// # Arguments
-    /// * `pattern`  - A Regex pattern to match on.
-    fn collect_while_2(&mut self, pattern: &Regex) -> Vec<char> {
         let mut token: Vec<char> = vec!();
         loop {
             if pattern.is_match(self.get_str().as_str()) && self.get_char() != '\0' {
@@ -236,8 +191,11 @@ impl Lexer {
     }
 
     fn backup(&mut self) {
-        if self.pos > 0 && self.pos - 1 >= 0 {
-            self.pos -= 1
+        if self.pos > 0 {
+            match self.pos.checked_sub(1) {
+                Some(i) => self.pos = i,
+                None => ()
+            }
         }
     }
 
@@ -312,7 +270,7 @@ impl Lexer {
             }
 
             't' => {
-                let result = self.collect_while_2(&VALID_SYMBOL);
+                let result = self.collect_while(&VALID_SYMBOL);
                 if result.iter().collect::<String>() == "true" {
                     Token::Boolean(true)
                 } else {
@@ -322,7 +280,7 @@ impl Lexer {
             }
 
             'f' => {
-                let result = self.collect_while_2(&VALID_SYMBOL);
+                let result = self.collect_while(&VALID_SYMBOL);
                 if result.iter().collect::<String>() == "false" {
                     Token::Boolean(false)
                 } else {
@@ -333,7 +291,7 @@ impl Lexer {
 
             _ if self.get_char().is_ascii_digit() => {
                 let mut result: String = String::from(self.get_char());
-                let mut num: Regex = Regex::new("^[0-9]+(?:\\.[0-9]+)?$").unwrap();
+                let num: Regex = Regex::new("^[0-9]+(?:\\.[0-9]+)?$").unwrap();
                 while num.is_match(&result) && self.get_char() != '\0'{
                     result.push(self.next());
                     if self.get_char() == '.' {
@@ -379,7 +337,7 @@ impl Lexer {
                 return self.next_token()
             },
             _ => {
-                let result = self.collect_while_2(&VALID_SYMBOL);
+                let result = self.collect_while(&VALID_SYMBOL);
                 if result.len() == 0 && self.get_char() != '\0' {
                     panic!("Unexpected Symbol {} on line {}, char {}", self.get_str(), self.row, self.col);
                 } else if result.len() == 0 && self.get_char() == '\0' {

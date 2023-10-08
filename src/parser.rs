@@ -26,7 +26,6 @@ pub enum Expr {
     MapRef(Rc<Expr>, Rc<Expr>),
 
     FnCall(ExprFnCall),
-    EoF,
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -145,10 +144,6 @@ impl Parser {
         }
     }
 
-    fn peek_next_token(&mut self) -> Token {
-        self.lookahead_tokens(2)
-    }
-
     fn peek_next_token_nonws(&mut self, count: usize) -> Token {
         let mut i = count;
         let mut token = self.lookahead_tokens(i);
@@ -205,7 +200,7 @@ impl Parser {
         let mut exprs: Vec<Expr> = vec![];
         while self.pos <= self.get_input_len() && self.get_token() != Token::EoF {
             let expr = match self.parse_token() {
-                Some(T) => T,
+                Some(token) => token,
                 None => {
                     self.advance();
                     continue
@@ -358,7 +353,7 @@ impl Parser {
                 _ => {
                     let token = self.parse_token();
                     match token {
-                        Some(T) => T,
+                        Some(token) => token,
                         None => continue,
                     }
                 }
@@ -385,7 +380,7 @@ impl Parser {
                 }
 
                 _ => match self.parse_token() {
-                    Some(T) => T,
+                    Some(token) => token,
                     None => continue,
                 },
             };
@@ -808,7 +803,7 @@ mod tests {
             Token::CloseBrace,
         ])];
 
-        for (i, input) in test_input.into_iter().enumerate() {
+        for (_, input) in test_input.into_iter().enumerate() {
             Parser::new(ParserInput::TokenList(input)).parse_token();
         }
     }
@@ -822,7 +817,7 @@ mod tests {
             Token::Number(1.0),
         ])];
 
-        for (i, input) in test_input.into_iter().enumerate() {
+        for (_, input) in test_input.into_iter().enumerate() {
             Parser::new(ParserInput::TokenList(input)).parse_token();
         }
     }
@@ -836,7 +831,7 @@ mod tests {
             Token::Symbol(Rc::from("test")),
         ])];
 
-        for (i, input) in test_input.into_iter().enumerate() {
+        for (_, input) in test_input.into_iter().enumerate() {
             Parser::new(ParserInput::TokenList(input)).parse_token();
         }
     }
@@ -851,7 +846,7 @@ mod tests {
             Token::CloseBracket,
         ])];
 
-        for (i, input) in test_input.into_iter().enumerate() {
+        for (_, input) in test_input.into_iter().enumerate() {
             Parser::new(ParserInput::TokenList(input)).parse_token();
         }
     }
@@ -866,7 +861,7 @@ mod tests {
             Token::Symbol(Rc::from("test")),
         ])];
 
-        for (i, input) in test_input.into_iter().enumerate() {
+        for (_, input) in test_input.into_iter().enumerate() {
             Parser::new(ParserInput::TokenList(input)).parse_token();
         }
     }
@@ -880,7 +875,7 @@ mod tests {
             Token::Number(1.0),
         ])];
 
-        for (i, input) in test_input.into_iter().enumerate() {
+        for (_, input) in test_input.into_iter().enumerate() {
             Parser::new(ParserInput::TokenList(input)).parse_token();
         }
     }
@@ -894,7 +889,7 @@ mod tests {
             Token::Boolean(true),
         ])];
 
-        for (i, input) in test_input.into_iter().enumerate() {
+        for (_, input) in test_input.into_iter().enumerate() {
             Parser::new(ParserInput::TokenList(input)).parse_token();
         }
     }

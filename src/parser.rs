@@ -1,8 +1,9 @@
-use crate::lex::Token;
+use crate::lex::{SmartToken, Token};
 use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
 use std::rc::Rc;
 
+#[derive(Debug)]
 pub struct Parser {
     input: ParserInput,
     parsing_map: bool,
@@ -47,8 +48,8 @@ impl Hash for NumberExpr {
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub struct MapAttrExpr {
-    key: Expr,
-    value: Expr,
+    pub key: Expr,
+    pub value: Expr,
 }
 
 impl MapAttrExpr {
@@ -66,18 +67,33 @@ impl Eq for NumberExpr {}
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone)]
 pub struct ExprFnCall {
-    name: Rc<str>,
-    args: Vec<Expr>,
+    pub name: Rc<str>,
+    pub args: Vec<Expr>,
 }
 
+#[derive(Debug)]
 enum ParserInput {
     TokenList(Rc<[Token]>),
+    SmartTokenList(Rc<[SmartToken]>),
 }
 
 impl Parser {
     pub fn from_token_list(input: Rc<[Token]>) -> Self {
         Parser::new(ParserInput::TokenList(input))
     }
+
+    pub fn from_token_list_smart(input: Rc<[SmartToken]>) -> Self {
+        Parser::new(ParserInput::SmartTokenList(input))
+    }
+
+
+    fn is_smarttoken(&self) -> bool {
+        match self.input {
+            ParserInput::SmartTokenList(_) => true,
+            _ => false,
+        }
+    }
+
 
     fn new(input: ParserInput) -> Self {
         Self {
@@ -96,6 +112,13 @@ impl Parser {
                     list[self.pos].clone()
                 }
             }
+            ParserInput::SmartTokenList(list) => {
+                if self.pos >= self.get_input_len() {
+                    Token::EoF
+                } else {
+                    list[self.pos].token.clone()
+                }
+            }
         }
     }
 
@@ -110,6 +133,13 @@ impl Parser {
                     Token::EoF
                 } else {
                     list[self.pos + count].clone()
+                }
+            }
+            ParserInput::SmartTokenList(list) => {
+                if self.pos + count >= self.get_input_len() {
+                    Token::EoF
+                } else {
+                    list[self.pos + count].token.clone()
                 }
             }
         }
@@ -132,12 +162,16 @@ impl Parser {
     fn get_input_len(&self) -> usize {
         match &self.input {
             ParserInput::TokenList(list) => list.len(),
+            ParserInput::SmartTokenList(list) => list.len(),
         }
     }
 
     fn advance(&mut self) {
         match &self.input {
             ParserInput::TokenList(_) => {
+                self.pos += 1;
+            },
+            ParserInput::SmartTokenList(_) => {
                 self.pos += 1;
             }
         }
@@ -147,6 +181,15 @@ impl Parser {
         match &self.input {
             ParserInput::TokenList(_) => {
                 self.pos += count;
+                while self.get_token() == Token::Whitespace {
+                    self.pos += 1;
+                }
+            }
+            ParserInput::SmartTokenList(_) => {
+                self.pos += count;
+                while self.get_token() == Token::Whitespace {
+                    self.pos += 1;
+                }
             }
         }
     }
@@ -163,7 +206,10 @@ impl Parser {
         while self.pos <= self.get_input_len() && self.get_token() != Token::EoF {
             let expr = match self.parse_token() {
                 Some(T) => T,
-                None => continue,
+                None => {
+                    self.advance();
+                    continue
+                },
             };
             exprs.push(expr);
         }
@@ -192,6 +238,7 @@ impl Parser {
             self.advance();
         }
 
+        self.pos -= 1;
         Expr::Path(PathBuf::from(path_str))
     }
 
@@ -216,6 +263,18 @@ impl Parser {
         Expr::List(list)
     }
 
+    fn get_token_position(&self) -> (usize, Option<(usize, usize)>) {
+        match &self.input {
+            ParserInput::TokenList(_) => {
+                (self.pos, None)
+            },
+            ParserInput::SmartTokenList(list) => {
+                let token = list[self.pos].clone();
+                (token.row, Some(token.col))
+            }
+        }
+    }
+
     fn peek_discard_whitespace(&self) -> Token {
         let mut count: usize = 1;
         loop {
@@ -225,6 +284,20 @@ impl Parser {
                         return Token::EoF;
                     } else {
                         let token = list[self.pos + count].clone();
+                        match token {
+                            Token::Whitespace => {
+                                count += 1;
+                                continue;
+                            }
+                            _ => return token,
+                        }
+                    }
+                },
+                ParserInput::SmartTokenList(list) => {
+                    if self.pos + count >= self.get_input_len() {
+                        return Token::EoF;
+                    } else {
+                        let token = list[self.pos + count].token.clone();
                         match token {
                             Token::Whitespace => {
                                 count += 1;
@@ -258,11 +331,19 @@ impl Parser {
                     MapAttrExpr { key, value }
                 }
                 Token::Whitespace => continue,
-                _ => panic!("Unknown symbol at key position in map!"),
+                _ => {
+                    if self.is_smarttoken() {
+                        let (row, col) = self.get_token_position();
+                        let (col_start, col_end) = col.unwrap();
+                        panic!("Unknown symbol {:?} at key position in map at row {}, column: ({}, {})", self.get_token(), row, col_start, col_end)
+                    }
+                    panic!("Unknown symbol at key position in map!")
+                }
             };
             map.push(expr);
         }
 
+        self.pos -= 1;
         self.parsing_map = false;
         Expr::Map(map)
     }
@@ -282,7 +363,6 @@ impl Parser {
                     }
                 }
             };
-            self.advance();
             exprs.push(expr);
         }
 
@@ -296,9 +376,9 @@ impl Parser {
             self.advance();
             let expr = match self.get_token() {
                 Token::Discard => panic!("Parser got a Discard Token!"),
-                Token::Comma | Token::Semicolon | Token::EoF => break,
+                Token::Comma | Token::Semicolon | Token::EoF | Token::CloseParen | Token::CloseBrace | Token::CloseBracket => break,
                 Token::Equal => Expr::Symbol(Rc::from("=")),
-                Token::Whitespace => continue,
+                Token::Whitespace =>  continue,
                 Token::OpenParen => {
                     args.extend(self.parse_parens());
                     continue;
@@ -321,43 +401,77 @@ impl Parser {
     }
 
     fn parse_symbol(&mut self, symbol: Rc<str>) -> Expr {
-        match self.peek_token() {
+        self.advance_skip_whitespace();
+        match self.get_token() {
             Token::Semicolon | Token::Comma | Token::EoF => Expr::Symbol(symbol),
             Token::Equal if self.parsing_map => Expr::Symbol(symbol),
-            Token::Equal if ! self.parsing_map => {
-                self.advance_skip_whitespace();
+            Token::Equal => {
                 self.parse_assignment(Expr::Symbol(symbol))
             }
-            Token::Dot => match self.peek_next_token() {
-                Token::Symbol(map) => match self.peek_next_token_nonws(3) {
-                    Token::Equal => {
-                        let mapref = self.parse_mapref(symbol, map);
-                        self.advance_skip_whitespace();
-                        self.parse_assignment(mapref)
+            Token::Dot => {
+                let map_attr =  match self.peek_token() {
+                    Token::Symbol(attr) => attr,
+                    Token::Number(i) => {
+                        if self.is_smarttoken() {
+                            let (row, col) = self.get_token_position();
+                            let col = col.unwrap();
+                            panic!("Attempt to index a map {} with a number {} at row {}, column ({}, {})", symbol, i, row, col.0, col.1)
+                        }
+                        panic!("You can not index a Map with a number!");
+                    },
+                    Token::Slash => {
+                        self.pos -= 1;
+                        return self.parse_fncall(symbol);
                     }
-                    _ => self.parse_mapref(symbol, map)
+                    _ => {
+                        if self.is_smarttoken() {
+                            let (row, col) = self.get_token_position();
+                            let col = col.unwrap();
+                            panic!("Malformed Mapref at row {}, column ({}, {}).\nMap Name: {}\nAttribute: {:?}", row, col.0, col.1, symbol, self.peek_token())
+                        }
+                        panic!("Malformed MapRef!")
+                    },
+                };
+
+                let map_ref = self.parse_mapref(symbol, map_attr);
+                match self.peek_next_token_nonws(0) {
+                    Token::Equal => {
+                        self.parse_assignment(map_ref)
+                    }
+                    _ => map_ref,
                 }
-                Token::Number(_) => panic!("You can not index a Map with a number!"),
-                _ => self.parse_fncall(symbol),
             },
-            Token::OpenBracket => match self.peek_next_token() {
-                Token::Number(i) if self.lookahead_tokens(3) == Token::CloseBracket => {
-                    self.parse_listref(symbol, i)
+            Token::OpenBracket => {
+                let list_ref = match self.peek_token() {
+                    Token::Number(i) if self.lookahead_tokens(2) == Token::CloseBracket => self.parse_listref(symbol, i),
+                    Token::Number(i) if self.lookahead_tokens(2) != Token::Comma => panic!("Malformed List or ListRef! {}[{}", symbol, i),
+                    Token::CloseBracket => {
+                        self.pos -= 1;
+                        return self.parse_fncall(symbol);
+                    }
+                    _ if self.lookahead_tokens(2) != Token::Comma => panic!("Malformed List or ListRef!"),
+                    _ => panic!("List panic!"),
+                };
+
+                match self.peek_next_token_nonws(1) {
+                    Token::Equal => {
+                        self.advance_skip_whitespace();
+                        self.parse_assignment(list_ref)
+                    }
+                    _ => {
+                        list_ref
+                    },
                 }
-                Token::Number(i) if self.lookahead_tokens(3) != Token::Comma => {
-                    panic!("Malformed List or ListRef! {}[{}", symbol, i)
-                }
-                _ if self.lookahead_tokens(3) != Token::Comma => {
-                    panic!("Malformed List or ListRef!")
-                }
-                _ => self.parse_fncall(symbol),
+            }
+            _ => {
+                self.pos -= 1;
+                self.parse_fncall(symbol)
             },
-            _ => self.parse_fncall(symbol),
         }
     }
 
     fn parse_mapref(&mut self, map_symbol: Rc<str>, index_symbol: Rc<str>) -> Expr {
-        self.advance_many(3);
+        self.advance_many(2);
         Expr::MapRef(
             Rc::from(Expr::Symbol(map_symbol)),
             Rc::from(Expr::Symbol(index_symbol)),
@@ -366,9 +480,14 @@ impl Parser {
 
     fn parse_listref(&mut self, list_symbol: Rc<str>, index: f64) -> Expr {
         if index.fract() != 0.0 {
-            panic!("Can not index a list by a non-integer number!")
+            if self.is_smarttoken() {
+                let (row, col) = self.get_token_position();
+                let col = col.unwrap();
+                panic!("Attempt to index a list by non-integer number {} at row {}, column {:?}", index, row, col)
+            }
+            panic!("Can not index a list by a non-integer number! Number: {}", index);
         }
-        self.advance_many(4);
+        self.advance_many(3);
         Expr::ListRef(
             Rc::from(Expr::Symbol(list_symbol)),
             NumberExpr { num: index },
@@ -386,13 +505,20 @@ impl Parser {
             Token::OpenBracket => Some(self.parse_list()),
             Token::OpenBrace => Some(self.parse_map()),
             Token::Symbol(sym) => Some(self.parse_symbol(sym)),
+            Token::CloseBrace => None,
             Token::CloseParen => None,
             Token::EoF => None,
             Token::Whitespace => {
                 self.advance_skip_whitespace();
                 self.parse_token()
             }
-            _ => panic!("Unknown token! {:?}", self.get_token()),
+            _ => {
+                if self.is_smarttoken() {
+                    let (row, col) = self.get_token_position();
+                    panic!("Unknown token: {:?} at row {:?}, column: {:?}", self.get_token(), row, col.unwrap());
+                }
+                panic!("Unknown token! {:?}", self.get_token())
+            }
         }
     }
 }
@@ -598,11 +724,11 @@ mod tests {
                 Token::Semicolon,
                 Token::CloseBrace,
             ]),
-            // Rc::from([Token::OpenBrace,
-            //                 Token::Symbol(Rc::from("test")), Token::Equal, Token::OpenBrace,
-            //                     Token::Symbol(Rc::from("id")), Token::Equal, Token::Number(1.0), Token::Semicolon,
-            //                 Token::CloseBrace, Token::Semicolon,
-            //               Token::CloseBrace]),
+            Rc::from([Token::OpenBrace,
+                            Token::Symbol(Rc::from("test")), Token::Equal, Token::OpenBrace,
+                                Token::Symbol(Rc::from("id")), Token::Equal, Token::Number(1.0), Token::Semicolon,
+                            Token::CloseBrace, Token::Semicolon,
+                          Token::CloseBrace]),
         ];
 
         let test_output = [
@@ -735,8 +861,8 @@ mod tests {
     pub fn test_bad_mapref() {
         let test_input: Vec<Rc<[Token]>> = vec![Rc::from([
             Token::Symbol(Rc::from("test")),
-            Token::Whitespace,
             Token::Dot,
+            Token::Whitespace,
             Token::Symbol(Rc::from("test")),
         ])];
 

@@ -35,6 +35,13 @@ pub struct Lexer {
     tpos: usize,
 }
 
+#[derive(Debug, PartialEq, Clone)]
+pub struct SmartToken {
+    pub row: usize,
+    pub col: (usize, usize),
+    pub token: Token,
+}
+
 /// Representation of a valid Token
 #[derive(Debug, PartialEq, Clone)]
 pub enum Token {
@@ -234,14 +241,32 @@ impl Lexer {
         }
     }
 
-    /// Collect and tokenize the entirety of the input in one go.
     pub fn tokenize_input(&mut self) -> Rc<[Token]> {
         let mut tokens: Vec<Token> = vec!();
         while self.pos <= self.input.len() {
             let token = self.next_token();
             match token {
                 Token::Discard => (),
-                _ => tokens.push(token)
+                _ => tokens.push(token),
+            }
+        }
+        tokens.into()
+    }
+
+    /// Collect and tokenize the entirety of the input in one go.
+    pub fn tokenize_input_smart(&mut self) -> Rc<[SmartToken]> {
+        let mut tokens: Vec<SmartToken> = vec!();
+        while self.pos <= self.input.len() {
+            let token = self.next_token();
+            match token {
+                Token::Discard => (),
+                _ => {
+                    tokens.push(SmartToken {
+                        row: self.trow,
+                        col: (self.tcol, self.col),
+                        token
+                    })
+                }
             }
         }
         tokens.into()

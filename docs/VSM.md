@@ -174,9 +174,18 @@ As VSL/VSM does not have an inbuilt function definition or declaration syntax, t
 Example
 ```nix
 system.config = {
-    users = [
-        {
-            username = 'sapeint';
+    services = [{name = sshd},];
+
+    vp_repos = {
+        personal = {
+            url = (vp-r 'sapein');
+            branch = 'personal';
+            allow_restricted = true;
+        };
+    };
+    
+    users = {
+        sapeint = {
             hashedPassword = 'PASS';
             homedir = {
                 subdirs = [ ./library, ./games/launchers, ./develop/personal, ./writing, ./videos, ./ttrpg, ];
@@ -188,8 +197,8 @@ system.config = {
                 i3 {
                     config = use_file ./i3/config (gh-r 'sapein' 'dotfiles');
                 },
-                discord { repository = personal;},
-                st { repository = personal; },
+                discord { repository = 'personal';},
+                st { repository = 'personal'; },
                 dunst { config = use_file ./dunst/dunstrc (gh-r 'sapein' 'dotfiles'); },
                 bash {
                     bashrc = use_file ./bash/bashrc (gh-r 'sapein' 'dotfiles');
@@ -199,16 +208,7 @@ system.config = {
                     config = add_lines [ './screenlayout/dualmonitor.sh', 'dbus-run-session i3',];
                 },
             ];
-        }
-    ,];
-
-    services = [{name = sshd},];
-
-    vp_repos = [{
-                  url = (vp-r 'sapein');
-                  name = 'personal';
-                  branch = 'personal';
-                  allow_restricted = true; 
-    },];
-}
+        };
+    };
+};
 ```

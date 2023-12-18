@@ -22,7 +22,7 @@ fn simple_output_no_whitespace() {
 
     let mut parser = Parser::from_token_list(lexer_output);
     let parser_expected = Rc::from(vec![
-        Expr::MapRef(Rc::from(Expr::Symbol(Rc::from("a"))), Rc::from(Expr::Symbol(Rc::from("b")))),
+        Expr::MapRef(Rc::from(Expr::Symbol(Rc::from("a"))), Box::from(Expr::Symbol(Rc::from("b")))),
         Expr::ListRef(Rc::from(Expr::Symbol(Rc::from("c"))), NumberExpr::from_number(1.0)),
         Expr::ListRef(Rc::from(Expr::Symbol(Rc::from("d"))), NumberExpr::from_number(1.0)),
         Expr::List(Vec::from([Expr::Number(NumberExpr::from_number(1.0)), Expr::Number(NumberExpr::from_number(2.0))])),
@@ -85,8 +85,8 @@ fn complex_output_no_whitespace() {
 
     let mut parser = Parser::from_token_list(lexer_output);
     let parser_expected = Rc::from(vec![
-        Expr::VarDecl(Rc::from(Expr::MapRef(Rc::from(Expr::Symbol(Rc::from("system"))), Rc::from(Expr::Symbol(Rc::from("config"))))),
-        Rc::from(Expr::Map(vec![
+        Expr::VarDecl(Box::from(Expr::MapRef(Rc::from(Expr::Symbol(Rc::from("system"))), Box::from(Expr::Symbol(Rc::from("config"))))),
+        Box::from(Expr::Map(vec![
             MapAttrExpr {
                 key: Expr::Symbol(Rc::from("users")),
                 value: Expr::List(vec![
@@ -201,7 +201,7 @@ fn simple_output() {
 
     let mut parser = Parser::from_token_list(lexer_output);
     let parser_expected = Rc::from(vec![
-        Expr::MapRef(Rc::from(Expr::Symbol(Rc::from("a"))), Rc::from(Expr::Symbol(Rc::from("b")))),
+        Expr::MapRef(Rc::from(Expr::Symbol(Rc::from("a"))), Box::from(Expr::Symbol(Rc::from("b")))),
         Expr::ListRef(Rc::from(Expr::Symbol(Rc::from("c"))), NumberExpr::from_number(1.0)),
         Expr::ListRef(Rc::from(Expr::Symbol(Rc::from("d"))), NumberExpr::from_number(1.0)),
         Expr::List(Vec::from([Expr::Number(NumberExpr::from_number(1.0)), Expr::Number(NumberExpr::from_number(2.0))])),
@@ -241,8 +241,8 @@ fn complex_output() {
 
     let mut parser = Parser::from_token_list_smart(lexer_output);
     let parser_expected = Rc::from(vec![
-        Expr::VarDecl(Rc::from(Expr::MapRef(Rc::from(Expr::Symbol(Rc::from("system"))), Rc::from(Expr::Symbol(Rc::from("config"))))),
-                      Rc::from(Expr::Map(vec![
+        Expr::VarDecl(Box::from(Expr::MapRef(Rc::from(Expr::Symbol(Rc::from("system"))), Box::from(Expr::Symbol(Rc::from("config"))))),
+                      Box::from(Expr::Map(vec![
                           MapAttrExpr {
                               key: Expr::Symbol(Rc::from("users")),
                               value: Expr::List(vec![

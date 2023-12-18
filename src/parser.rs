@@ -1,7 +1,10 @@
+use std::collections::BTreeMap;
+use std::fmt::Debug;
 use crate::lex::{SmartToken, Token};
 use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
 use std::rc::Rc;
+use crate::interpriter::{Env, Interpreter};
 
 #[derive(Debug)]
 pub struct Parser {
@@ -10,7 +13,10 @@ pub struct Parser {
     pos: usize,
 }
 
-#[derive(Debug, Hash, PartialEq, Eq, Clone)]
+type Builtin = fn(Vec<Expr>, env: &mut Env) -> Option<Expr>;
+type BuiltinMacro = fn(Vec<Expr>, interpreter: &mut Interpreter) -> Option<Expr>;
+
+#[derive(Debug, PartialEq, Hash, Clone)]
 pub enum Expr {
     String(Rc<str>),
     Number(NumberExpr),
@@ -18,19 +24,38 @@ pub enum Expr {
     Symbol(Rc<str>),
     Path(PathBuf),
 
-    VarDecl(Rc<Expr>, Rc<Expr>),
+    VarDecl(Box<Expr>, Box<Expr>),
+
+    GitHubRemote {
+        user: Rc<str>,
+        repo: Rc<str>
+    },
 
     List(Vec<Expr>),
     ListRef(Rc<Expr>, NumberExpr),
     Map(Vec<MapAttrExpr>),
-    MapRef(Rc<Expr>, Rc<Expr>),
+    MapRef(Rc<Expr>, Box<Expr>),
 
     FnCall(ExprFnCall),
+    FnResult(FnResultExpr),
+
+    // Builtins obtain only the scope, it can not manipulate the interpreter state
+    Builtin(Builtin),
+
+    //Macros represent builtins that obtains interpreter state
+    Macro(BuiltinMacro),
+}
+
+#[derive(Debug, PartialEq, Hash, Clone)]
+pub struct FnResultExpr {
+    pub(crate) env: Env,
+    pub(crate) args: Vec<Expr>,
+    pub(crate) function: Builtin,
 }
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct NumberExpr {
-    num: f64,
+    pub num: f64,
 }
 
 impl NumberExpr {
@@ -45,7 +70,7 @@ impl Hash for NumberExpr {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Hash, Clone)]
+#[derive(Debug, PartialEq, Hash, Clone)]
 pub struct MapAttrExpr {
     pub key: Expr,
     pub value: Expr,
@@ -60,11 +85,21 @@ impl MapAttrExpr {
 
         Self { key, value }
     }
+
+    pub fn is_key(&self, key: &Expr) -> bool {
+        match &self.key {
+            Expr::Symbol(_sym) => match key {
+                Expr::Symbol(sym) => sym == _sym,
+                _ => false
+            },
+            _ => false,
+        }
+    }
 }
 
 impl Eq for NumberExpr {}
 
-#[derive(Debug, Hash, PartialEq, Eq, Clone)]
+#[derive(Debug, Hash, PartialEq, Clone)]
 pub struct ExprFnCall {
     pub name: Rc<str>,
     pub args: Vec<Expr>,
@@ -168,7 +203,7 @@ impl Parser {
             },
             ParserInput::SmartTokenList(_) => {
                 self.pos += 1;
-            }
+            },
         }
     }
 
@@ -392,7 +427,7 @@ impl Parser {
 
     fn parse_assignment(&mut self, symbol: Expr) -> Expr {
         self.advance_skip_whitespace();
-        Expr::VarDecl(Rc::from(symbol), Rc::from(self.parse_token().unwrap()))
+        Expr::VarDecl(Box::from(symbol), Box::from(self.parse_token().unwrap()))
     }
 
     fn parse_symbol(&mut self, symbol: Rc<str>) -> Expr {
@@ -469,7 +504,7 @@ impl Parser {
         self.advance_many(2);
         Expr::MapRef(
             Rc::from(Expr::Symbol(map_symbol)),
-            Rc::from(Expr::Symbol(index_symbol)),
+            Box::from(Expr::Symbol(index_symbol)),
         )
     }
 
@@ -618,7 +653,7 @@ mod tests {
     #[test]
     pub fn test_assignment() {
         let test_input: Vec<Rc<[Token]>> = vec![Rc::from([Token::Symbol(Rc::from("test")), Token::Equal, Token::Number(1.0)])];
-        let expected_output = vec![Expr::VarDecl(Rc::from(Expr::Symbol(Rc::from("test"))), Rc::from(Expr::Number(NumberExpr { num: 1.0 })))];
+        let expected_output = vec![Expr::VarDecl(Box::from(Expr::Symbol(Rc::from("test"))), Box::from(Expr::Number(NumberExpr { num: 1.0 })))];
 
         for (i, input) in test_input.into_iter().enumerate() {
             let output = Parser::new(ParserInput::TokenList(input))
@@ -781,7 +816,7 @@ mod tests {
 
         let test_output = [Expr::MapRef(
             Rc::from(Expr::Symbol(Rc::from("test"))),
-            Rc::from(Expr::Symbol(Rc::from("test"))),
+            Box::from(Expr::Symbol(Rc::from("test"))),
         )];
 
         for (i, input) in test_input.into_iter().enumerate() {

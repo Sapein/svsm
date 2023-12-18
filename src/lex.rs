@@ -21,6 +21,7 @@ lazy_static! {
 }
 
 /// A Lexer is represented here.
+#[derive(Debug)]
 pub struct Lexer {
     pub discard_whitespace: bool,
     pub discard_eof: bool,
@@ -93,6 +94,10 @@ impl Lexer {
             trow: 1,
             tpos: 1
         }
+    }
+
+    pub(crate) fn token_pos(self) -> (usize, (usize, usize)){
+        return (self.trow, (self.tcol, self.col))
     }
 
     pub fn toggle_whitespace(mut self) -> Self {
@@ -234,16 +239,15 @@ impl Lexer {
         (self.trow, self.tcol)
     }
 
-    pub fn peek_token(&mut self) -> Token {
+    pub(crate) fn peek_token(&mut self) -> Token {
         let token = self.next_token();
         self.pos = self.tpos;
         self.row = self.trow;
         self.col = self.tcol;
         token
     }
-
     /// Gets the next token in the input.
-    pub fn next_token(&mut self) -> Token {
+    pub(crate) fn next_token(&mut self) -> Token {
         self.tpos = self.pos;
         self.tcol = self.col;
         self.trow = self.row;

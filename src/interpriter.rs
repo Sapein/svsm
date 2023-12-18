@@ -39,7 +39,7 @@ impl Env {
     pub fn add_if_not_exists_with_expr(&mut self, name: Expr, value: Expr) -> &Self {
         match name.clone() {
             Expr::Symbol(sym) if self.variables.contains_key(&sym) => self.add_variable(name, value),
-            Expr::Symbol(sym) => self,
+            Expr::Symbol(_) => self,
             _ => panic!("Variable must be a symbol!"),
         }
     }
@@ -53,13 +53,17 @@ impl Env {
 
     pub fn add_variable(&mut self, name: Expr, value: Expr) -> &Self {
         match name {
-            Expr::Symbol(symbol) => self.variables.insert(symbol, value),
+            Expr::Symbol(symbol) => {self.variables.insert(symbol, value);},
             Expr::MapRef(name, attr) => {
-                // Todo
-                // We need to actually implement this
                 match &*name {
                     Expr::Symbol(name) => if let Some(map) = self.get_variable(&name) {
-                        panic!("AAA");
+                        match map {
+                            Expr::Map(mut map) => {
+                                map.insert(*attr, value);
+                                self.add_variable(Expr::Symbol(name.clone()), Expr::Map(map));
+                            },
+                            _ => panic!("You can't do attr access on a non-map type!"),
+                        }
                     } else {
                         panic!("Map {} does not exist!", name);
                     },
@@ -80,7 +84,7 @@ impl Env {
 
     fn get_variable(&self, name:  &Rc<str>) -> Option<Expr> {
         match self.variables.get_key_value(name) {
-            Some((K, V)) => Some(V.clone()),
+            Some((_, v)) => Some(v.clone()),
             None => match &self.parent {
                 Some(p) => Some(p.find_variable(name)),
                 None => None,
@@ -90,7 +94,7 @@ impl Env {
 
     pub fn find_variable(&self, name: &Rc<str>) -> Expr {
         match self.get_variable(name) {
-            Some(T) => T,
+            Some(t) => t,
             None => panic!("Variable not found!"),
         }
     }
@@ -102,7 +106,7 @@ pub enum InterpreterInput {
 }
 
 impl Interpreter {
-    pub fn new_vexprs(input: Vec<Expr>) -> Self{
+    pub fn new_vector_ast(input: Vec<Expr>) -> Self{
        Self {
            input: InterpreterInput::VecAst(input),
            pos: 0,
@@ -157,7 +161,7 @@ impl Interpreter {
 }
 pub fn eval(input: Expr, env: &mut Env, disable_lazy: bool) -> Option<Expr> {
     match input {
-        Expr::VarDecl(name, mut value) => {
+        Expr::VarDecl(name, value) => {
             env.add_variable(*name, *value.clone());
 
             Some(*value)
@@ -171,7 +175,7 @@ pub fn eval(input: Expr, env: &mut Env, disable_lazy: bool) -> Option<Expr> {
             let value = env.find_variable_with_expr(&sym);
             match value {
                 Expr::List(list) => match list.get(index.num.into_inner() as usize){
-                    Some(T) => Some(T.clone()),
+                    Some(t) => Some(t.clone()),
                     None => panic!("Invalid index"),
                 },
                 _ => panic!("Unable to list access into a non-list!"),
@@ -183,7 +187,7 @@ pub fn eval(input: Expr, env: &mut Env, disable_lazy: bool) -> Option<Expr> {
                 Expr::Map(map) => {
                     match map.get_key_value(&attr) {
                         None => panic!("Map Attr not found!"),
-                        Some((_, &ref T)) => Some(T.clone()),
+                        Some((_, &ref t)) => Some(t.clone()),
                     }
                 }
                 _ => panic!("Unable to list access into a non-list!"),
@@ -191,7 +195,7 @@ pub fn eval(input: Expr, env: &mut Env, disable_lazy: bool) -> Option<Expr> {
         },
 
         Expr::FnResult(expr) => {
-            let FnResultExpr { function: f, args: args, env: env } = expr;
+            let FnResultExpr { function: f, args, env } = expr;
             f(args, &mut env.clone())
         },
         Expr::FnCall(fncall) => {
@@ -231,14 +235,14 @@ mod tests {
 
     #[test]
     pub fn test_evaluation() {
-        let mut interpriter = Interpreter::new_vexprs(vec![Expr::Boolean(true)]);
+        let mut interpriter = Interpreter::new_vector_ast(vec![Expr::Boolean(true)]);
 
         assert_eq!(interpriter.eval().unwrap(), Expr::Boolean(true))
     }
 
     #[test]
     pub fn test_evaluation_with_advance() {
-        let mut interpriter = Interpreter::new_vexprs(vec![Expr::Boolean(true)]);
+        let mut interpriter = Interpreter::new_vector_ast(vec![Expr::Boolean(true)]);
 
         interpriter.advance();
         assert_eq!(interpriter.eval().unwrap(), Expr::Boolean(true))
@@ -246,7 +250,7 @@ mod tests {
 
     #[test]
     pub fn test_evaluation_with_advance_multiple() {
-        let mut interpriter = Interpreter::new_vexprs(vec![Expr::Boolean(true), Expr::String(Rc::from("This is a string"))]);
+        let mut interpriter = Interpreter::new_vector_ast(vec![Expr::Boolean(true), Expr::String(Rc::from("This is a string"))]);
 
         assert_eq!(interpriter.eval().unwrap(), Expr::Boolean(true));
         assert_eq!(interpriter.advance().eval().unwrap(), Expr::String(Rc::from("This is a string")));
@@ -254,7 +258,7 @@ mod tests {
 
     #[test]
     pub fn test_vardecl_evaulation() {
-        let mut interpriter = Interpreter::new_vexprs(vec![Expr::VarDecl(Box::from(Expr::Symbol(Rc::from("test"))), Box::from(Expr::Boolean(true)))]);
+        let mut interpriter = Interpreter::new_vector_ast(vec![Expr::VarDecl(Box::from(Expr::Symbol(Rc::from("test"))), Box::from(Expr::Boolean(true)))]);
 
         assert_eq!(interpriter.eval().unwrap(), Expr::Boolean(true));
         assert_eq!(interpriter.env.variables[&Rc::from("test")], Expr::Boolean(true));
@@ -262,7 +266,7 @@ mod tests {
 
     #[test]
     pub fn test_symbol_evaulation() {
-        let mut interpriter = Interpreter::new_vexprs(vec![Expr::Symbol(Rc::from("test"))]);
+        let mut interpriter = Interpreter::new_vector_ast(vec![Expr::Symbol(Rc::from("test"))]);
         interpriter.env.add_variable(Expr::Symbol(Rc::from("test")), Expr::Number(NumberExpr::from_number(1.0)));
 
         assert_eq!(interpriter.eval().unwrap(), Expr::Number(NumberExpr::from_number(1.0)));
@@ -270,7 +274,7 @@ mod tests {
 
     #[test]
     pub fn test_list_index_evaulation() {
-        let mut interpriter = Interpreter::new_vexprs(vec![Expr::ListRef(Rc::from(Expr::Symbol(Rc::from("test"))), NumberExpr { num: OrderedFloat::from(0.0) })]);
+        let mut interpriter = Interpreter::new_vector_ast(vec![Expr::ListRef(Rc::from(Expr::Symbol(Rc::from("test"))), NumberExpr { num: OrderedFloat::from(0.0) })]);
         interpriter.env.add_variable(Expr::Symbol(Rc::from("test")), Expr::List(vec![Expr::Boolean(true)]));
 
         assert_eq!(interpriter.eval().unwrap(), Expr::Boolean(true));
@@ -278,7 +282,7 @@ mod tests {
 
     #[test]
     pub fn test_map_access_evaluation() {
-        let mut interpriter = Interpreter::new_vexprs(vec![Expr::MapRef(Rc::from(Expr::Symbol(Rc::from("test"))), Box::from(Expr::Symbol(Rc::from("test"))))]);
+        let mut interpriter = Interpreter::new_vector_ast(vec![Expr::MapRef(Rc::from(Expr::Symbol(Rc::from("test"))), Box::from(Expr::Symbol(Rc::from("test"))))]);
         interpriter.env.add_variable(Expr::Symbol(Rc::from("test")), Expr::Map(BTreeMap::from([(Expr::Symbol(Rc::from("test")), Expr::Path(PathBuf::from("/home")))])));
 
         assert_eq!(interpriter.eval().unwrap(), Expr::Path(PathBuf::from("/home")));
@@ -286,7 +290,7 @@ mod tests {
 
     #[test]
     pub fn test_fncall_evaluation() {
-        let mut interpriter = Interpreter::new_vexprs(vec![Expr::FnCall(ExprFnCall { name: Rc::from("add"), args: vec![Expr::Number(NumberExpr { num: OrderedFloat::from(1.0) }), Expr::Number(NumberExpr { num: OrderedFloat::from(1.0) })]})]);
+        let mut interpriter = Interpreter::new_vector_ast(vec![Expr::FnCall(ExprFnCall { name: Rc::from("add"), args: vec![Expr::Number(NumberExpr { num: OrderedFloat::from(1.0) }), Expr::Number(NumberExpr { num: OrderedFloat::from(1.0) })]})]);
         interpriter.disable_lazy = true;
         interpriter.env.add_variable(Expr::Symbol(Rc::from("add")), Expr::Builtin(builtins::add));
 
@@ -295,7 +299,7 @@ mod tests {
 
     #[test]
     pub fn test_ghr_builtin_simple() {
-        let mut interpriter = Interpreter::new_vexprs(vec![Expr::FnCall(ExprFnCall { name: Rc::from("gh-r"), args: vec![Expr::String(Rc::from("test")), Expr::String(Rc::from("test2"))]})]);
+        let mut interpriter = Interpreter::new_vector_ast(vec![Expr::FnCall(ExprFnCall { name: Rc::from("gh-r"), args: vec![Expr::String(Rc::from("test")), Expr::String(Rc::from("test2"))]})]);
         interpriter.disable_lazy = true;
         interpriter.env.add_variable(Expr::Symbol(Rc::from("gh-r")), Expr::Builtin(builtins::github_repo));
 
@@ -304,7 +308,7 @@ mod tests {
 
     #[test]
     pub fn test_ghr_builtin_symbols() {
-        let mut interpriter = Interpreter::new_vexprs(vec![Expr::FnCall(ExprFnCall { name: Rc::from("gh-r"), args: vec![Expr::Symbol(Rc::from("test")), Expr::Symbol(Rc::from("test2"))]})]);
+        let mut interpriter = Interpreter::new_vector_ast(vec![Expr::FnCall(ExprFnCall { name: Rc::from("gh-r"), args: vec![Expr::Symbol(Rc::from("test")), Expr::Symbol(Rc::from("test2"))]})]);
         interpriter.disable_lazy = true;
         interpriter.env.add_variable(Expr::Symbol(Rc::from("gh-r")), Expr::Builtin(builtins::github_repo));
         interpriter.env.add_variable(Expr::Symbol(Rc::from("test")), Expr::String(Rc::from("test")));
@@ -315,7 +319,7 @@ mod tests {
 
     #[test]
     pub fn test_ghr_builtin_symbols_nested() {
-        let mut interpriter = Interpreter::new_vexprs(vec![Expr::FnCall(ExprFnCall { name: Rc::from("gh-r"), args: vec![Expr::Symbol(Rc::from("test")), Expr::Symbol(Rc::from("test2"))]})]);
+        let mut interpriter = Interpreter::new_vector_ast(vec![Expr::FnCall(ExprFnCall { name: Rc::from("gh-r"), args: vec![Expr::Symbol(Rc::from("test")), Expr::Symbol(Rc::from("test2"))]})]);
         interpriter.disable_lazy = true;
         interpriter.env.add_variable(Expr::Symbol(Rc::from("gh-r")), Expr::Builtin(builtins::github_repo));
         interpriter.env.add_variable(Expr::Symbol(Rc::from("test")), Expr::String(Rc::from("test")));
@@ -328,7 +332,7 @@ mod tests {
 
     #[test]
     pub fn test_ghr_builtin_symbols_mixed() {
-        let mut interpriter = Interpreter::new_vexprs(vec![Expr::FnCall(ExprFnCall { name: Rc::from("gh-r"), args: vec![Expr::Symbol(Rc::from("test")), Expr::String(Rc::from("test2"))]})]);
+        let mut interpriter = Interpreter::new_vector_ast(vec![Expr::FnCall(ExprFnCall { name: Rc::from("gh-r"), args: vec![Expr::Symbol(Rc::from("test")), Expr::String(Rc::from("test2"))]})]);
         interpriter.disable_lazy = true;
         interpriter.env.add_variable(Expr::Symbol(Rc::from("gh-r")), Expr::Builtin(builtins::github_repo));
         interpriter.env.add_variable(Expr::Symbol(Rc::from("test")), Expr::String(Rc::from("test")));
@@ -339,7 +343,7 @@ mod tests {
     #[test]
     #[should_panic]
     pub fn test_ghr_builtin_bad_args() {
-        let mut interpriter = Interpreter::new_vexprs(vec![Expr::FnCall(ExprFnCall { name: Rc::from("gh-r"), args: vec![Expr::Boolean(true), Expr::String(Rc::from("test2"))]})]);
+        let mut interpriter = Interpreter::new_vector_ast(vec![Expr::FnCall(ExprFnCall { name: Rc::from("gh-r"), args: vec![Expr::Boolean(true), Expr::String(Rc::from("test2"))]})]);
         interpriter.disable_lazy = true;
         interpriter.env.add_variable(Expr::Symbol(Rc::from("gh-r")), Expr::Builtin(builtins::github_repo));
 

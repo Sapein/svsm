@@ -551,7 +551,7 @@ mod tests {
 
         for input in test_input {
             let output = Parser::new(ParserInput::TokenList(Rc::new([Token::String(Rc::from(
-                input.clone(),
+                input,
             ))])))
             .parse_token()
             .unwrap();
@@ -583,7 +583,7 @@ mod tests {
         let test_input = ["Symbol", "AnotherSymbol"];
         for input in test_input {
             let output = Parser::new(ParserInput::TokenList(Rc::new([Token::Symbol(Rc::from(
-                input.clone(),
+                input,
             ))])))
             .parse_token()
             .unwrap();

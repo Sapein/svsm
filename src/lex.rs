@@ -96,10 +96,6 @@ impl Lexer {
         }
     }
 
-    pub(crate) fn token_pos(self) -> (usize, (usize, usize)){
-        return (self.trow, (self.tcol, self.col))
-    }
-
     pub fn toggle_whitespace(mut self) -> Self {
         self.discard_whitespace = !self.discard_whitespace;
         self
@@ -239,13 +235,15 @@ impl Lexer {
         (self.trow, self.tcol)
     }
 
-    pub(crate) fn peek_token(&mut self) -> Token {
+    #[allow(dead_code)]
+    fn peek_token(&mut self) -> Token {
         let token = self.next_token();
         self.pos = self.tpos;
         self.row = self.trow;
         self.col = self.tcol;
         token
     }
+
     /// Gets the next token in the input.
     pub(crate) fn next_token(&mut self) -> Token {
         self.tpos = self.pos;

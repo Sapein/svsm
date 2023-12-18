@@ -10,9 +10,11 @@ mod tests {
 
     #[cfg(test)]
     mod integration {
+        use std::collections::BTreeMap;
         use std::rc::Rc;
+        use ordered_float::OrderedFloat;
         use crate::lex::Token;
-        use crate::parser::{Expr, MapAttrExpr, NumberExpr};
+        use crate::parser::{Expr, NumberExpr};
         use super::*;
 
         #[test]
@@ -25,7 +27,7 @@ mod tests {
             let output: Rc<[Expr]> = Rc::from(vec![
                 Expr::VarDecl(
                     Box::new(Expr::MapRef(Rc::from(Expr::Symbol(Rc::from("system"))), Box::from(Expr::Symbol(Rc::from("config"))))),
-                    Box::new(Expr::Map(vec![MapAttrExpr { key: Expr::Symbol(Rc::from("aaa")), value: Expr::Number(NumberExpr { num: 123.0 })}]))
+                    Box::new(Expr::Map(BTreeMap::from([(Expr::Symbol(Rc::from("aaa")), Expr::Number(NumberExpr { num: OrderedFloat::from(123.0) }))])))
                 )
             ]);
 

@@ -15,7 +15,7 @@ pub struct Interpreter {
     pub(crate) env: Box<Env>,
 }
 
-#[derive(Debug, PartialEq, Hash, Clone)]
+#[derive(Debug, PartialEq, PartialOrd, Ord, Eq, Hash, Clone)]
 pub struct Env {
     variables: BTreeMap<Rc<str>, Expr>,
     parent: Option<Rc<Env>>,
@@ -57,8 +57,9 @@ impl Env {
             Expr::MapRef(name, attr) => {
                 // Todo
                 // We need to actually implement this
-                match name {
+                match &*name {
                     Expr::Symbol(name) => if let Some(map) = self.get_variable(&name) {
+                        panic!("AAA");
                     } else {
                         panic!("Map {} does not exist!", name);
                     },
@@ -90,7 +91,7 @@ impl Env {
     pub fn find_variable(&self, name: &Rc<str>) -> Expr {
         match self.get_variable(name) {
             Some(T) => T,
-            None => panic!("Variable not found!");
+            None => panic!("Variable not found!"),
         }
     }
 }
@@ -169,7 +170,7 @@ pub fn eval(input: Expr, env: &mut Env, disable_lazy: bool) -> Option<Expr> {
         Expr::ListRef(sym, index) => {
             let value = env.find_variable_with_expr(&sym);
             match value {
-                Expr::List(list) => match list.get(index.num as usize){
+                Expr::List(list) => match list.get(index.num.into_inner() as usize){
                     Some(T) => Some(T.clone()),
                     None => panic!("Invalid index"),
                 },
@@ -180,12 +181,10 @@ pub fn eval(input: Expr, env: &mut Env, disable_lazy: bool) -> Option<Expr> {
             let value = env.find_variable_with_expr(&sym);
             match value {
                 Expr::Map(map) => {
-                    for k in map {
-                        if k.is_key(&sym) {
-                            return Some(k.value)
-                        }
+                    match map.get_key_value(&attr) {
+                        None => panic!("Map Attr not found!"),
+                        Some((_, &ref T)) => Some(T.clone()),
                     }
-                    panic!("Map Attr not found!")
                 }
                 _ => panic!("Unable to list access into a non-list!"),
             }
@@ -226,7 +225,8 @@ pub fn eval(input: Expr, env: &mut Env, disable_lazy: bool) -> Option<Expr> {
 mod tests {
     use std::path::PathBuf;
     use std::rc::Rc;
-    use crate::parser::{ExprFnCall, MapAttrExpr, NumberExpr};
+    use ordered_float::OrderedFloat;
+    use crate::parser::{ExprFnCall, NumberExpr};
     use super::*;
 
     #[test]
@@ -270,7 +270,7 @@ mod tests {
 
     #[test]
     pub fn test_list_index_evaulation() {
-        let mut interpriter = Interpreter::new_vexprs(vec![Expr::ListRef(Rc::from(Expr::Symbol(Rc::from("test"))), NumberExpr { num: 0.0 })]);
+        let mut interpriter = Interpreter::new_vexprs(vec![Expr::ListRef(Rc::from(Expr::Symbol(Rc::from("test"))), NumberExpr { num: OrderedFloat::from(0.0) })]);
         interpriter.env.add_variable(Expr::Symbol(Rc::from("test")), Expr::List(vec![Expr::Boolean(true)]));
 
         assert_eq!(interpriter.eval().unwrap(), Expr::Boolean(true));
@@ -279,18 +279,18 @@ mod tests {
     #[test]
     pub fn test_map_access_evaluation() {
         let mut interpriter = Interpreter::new_vexprs(vec![Expr::MapRef(Rc::from(Expr::Symbol(Rc::from("test"))), Box::from(Expr::Symbol(Rc::from("test"))))]);
-        interpriter.env.add_variable(Expr::Symbol(Rc::from("test")), Expr::Map(vec![MapAttrExpr { key: Expr::Symbol(Rc::from("test")), value: Expr::Path(PathBuf::from("/home")) }]));
+        interpriter.env.add_variable(Expr::Symbol(Rc::from("test")), Expr::Map(BTreeMap::from([(Expr::Symbol(Rc::from("test")), Expr::Path(PathBuf::from("/home")))])));
 
         assert_eq!(interpriter.eval().unwrap(), Expr::Path(PathBuf::from("/home")));
     }
 
     #[test]
     pub fn test_fncall_evaluation() {
-        let mut interpriter = Interpreter::new_vexprs(vec![Expr::FnCall(ExprFnCall { name: Rc::from("add"), args: vec![Expr::Number(NumberExpr { num: 1.0 }), Expr::Number(NumberExpr { num: 1.0 })]})]);
+        let mut interpriter = Interpreter::new_vexprs(vec![Expr::FnCall(ExprFnCall { name: Rc::from("add"), args: vec![Expr::Number(NumberExpr { num: OrderedFloat::from(1.0) }), Expr::Number(NumberExpr { num: OrderedFloat::from(1.0) })]})]);
         interpriter.disable_lazy = true;
         interpriter.env.add_variable(Expr::Symbol(Rc::from("add")), Expr::Builtin(builtins::add));
 
-        assert_eq!(interpriter.eval().unwrap(), Expr::Number(NumberExpr { num: 1.0 + 1.0 }));
+        assert_eq!(interpriter.eval().unwrap(), Expr::Number(NumberExpr { num: OrderedFloat::from(1.0 + 1.0) }));
     }
 
     #[test]

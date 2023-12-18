@@ -1,9 +1,10 @@
 use std::collections::BTreeMap;
-use std::fmt::Debug;
+use std::fmt::{Debug};
 use crate::lex::{SmartToken, Token};
 use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
 use std::rc::Rc;
+use ordered_float::OrderedFloat;
 use crate::interpriter::{Env, Interpreter};
 
 #[derive(Debug)]
@@ -16,7 +17,7 @@ pub struct Parser {
 type Builtin = fn(Vec<Expr>, env: &mut Env) -> Option<Expr>;
 type BuiltinMacro = fn(Vec<Expr>, interpreter: &mut Interpreter) -> Option<Expr>;
 
-#[derive(Debug, PartialEq, Hash, Clone)]
+#[derive(Debug, PartialEq, PartialOrd, Ord, Eq, Hash, Clone)]
 pub enum Expr {
     String(Rc<str>),
     Number(NumberExpr),
@@ -33,7 +34,7 @@ pub enum Expr {
 
     List(Vec<Expr>),
     ListRef(Rc<Expr>, NumberExpr),
-    Map(Vec<MapAttrExpr>),
+    Map(BTreeMap<Expr, Expr>),
     MapRef(Rc<Expr>, Box<Expr>),
 
     FnCall(ExprFnCall),
@@ -46,21 +47,21 @@ pub enum Expr {
     Macro(BuiltinMacro),
 }
 
-#[derive(Debug, PartialEq, Hash, Clone)]
+#[derive(Debug, PartialEq, PartialOrd, Ord, Eq, Hash, Clone)]
 pub struct FnResultExpr {
     pub(crate) env: Env,
     pub(crate) args: Vec<Expr>,
     pub(crate) function: Builtin,
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, PartialOrd, Ord, Eq, Clone)]
 pub struct NumberExpr {
-    pub num: f64,
+    pub num: OrderedFloat<f64>,
 }
 
 impl NumberExpr {
     pub fn from_number(number: f64) -> Self {
-        NumberExpr { num: number }
+        NumberExpr { num: OrderedFloat::from(number) }
     }
 }
 
@@ -70,36 +71,7 @@ impl Hash for NumberExpr {
     }
 }
 
-#[derive(Debug, PartialEq, Hash, Clone)]
-pub struct MapAttrExpr {
-    pub key: Expr,
-    pub value: Expr,
-}
-
-impl MapAttrExpr {
-    pub fn new(key: Expr, value: Expr) -> Self {
-        match key {
-            Expr::Symbol(_) => (),
-            _ => panic!("Key *must* be a symbol!"),
-        };
-
-        Self { key, value }
-    }
-
-    pub fn is_key(&self, key: &Expr) -> bool {
-        match &self.key {
-            Expr::Symbol(_sym) => match key {
-                Expr::Symbol(sym) => sym == _sym,
-                _ => false
-            },
-            _ => false,
-        }
-    }
-}
-
-impl Eq for NumberExpr {}
-
-#[derive(Debug, Hash, PartialEq, Clone)]
+#[derive(Debug, PartialOrd, Ord, Eq, Hash, PartialEq, Clone)]
 pub struct ExprFnCall {
     pub name: Rc<str>,
     pub args: Vec<Expr>,
@@ -343,7 +315,7 @@ impl Parser {
 
     fn parse_map(&mut self) -> Expr {
         self.parsing_map = true;
-        let mut map: Vec<MapAttrExpr> = Vec::new();
+        let mut map: BTreeMap<Expr, Expr> = BTreeMap::new();
 
         while self.pos < self.get_input_len() || self.get_token() != Token::EoF {
             self.advance();
@@ -354,11 +326,9 @@ impl Parser {
                 }
                 Token::Semicolon => continue,
                 Token::Symbol(sym) if self.peek_discard_whitespace() == Token::Equal => {
-                    let key = Expr::Symbol(sym);
                     self.advance_skip_whitespace();
                     self.advance_skip_whitespace();
-                    let value = self.parse_token().unwrap();
-                    MapAttrExpr { key, value }
+                    (Expr::Symbol(sym), self.parse_token().unwrap())
                 }
                 Token::Whitespace => continue,
                 _ => {
@@ -370,7 +340,20 @@ impl Parser {
                     panic!("Unknown symbol at key position in map!")
                 }
             };
-            map.push(expr);
+            if map.contains_key(&expr.1) {
+                match expr.1 {
+                    Expr::Symbol(str) => if self.is_smarttoken() {
+                        let (row, col) = self.get_token_position();
+                        let (col_start, col_end) = col.unwrap();
+                        let Expr::Symbol(map_name) = expr.0 else { panic!("This should never happen!") };
+                        panic!("Key {} already exists in Map {}. New definition at row {}, column: ({}, {})", str, map_name, row, col_start, col_end);
+                    } else {
+                        panic!("Key {} already exists in map!", str)
+                    },
+                    _ => panic!()
+                }
+            }
+            map.insert(expr.0, expr.1);
         }
 
         self.pos -= 1;
@@ -520,7 +503,7 @@ impl Parser {
         self.advance_many(3);
         Expr::ListRef(
             Rc::from(Expr::Symbol(list_symbol)),
-            NumberExpr { num: index },
+            NumberExpr { num: OrderedFloat::from(index) },
         )
     }
 
@@ -529,7 +512,7 @@ impl Parser {
             Token::Discard => panic!("Parser got a Discard Token!"),
             Token::Boolean(b) => Some(Expr::Boolean(b)),
             Token::String(str) => Some(Expr::String(str)),
-            Token::Number(num) => Some(Expr::Number(NumberExpr { num })),
+            Token::Number(num) => Some(Expr::Number(NumberExpr { num: OrderedFloat::from(num) })),
             Token::Slash => Some(self.parse_path()),
             Token::Dot if self.peek_token() == Token::Slash => Some(self.parse_path()),
             Token::OpenBracket => Some(self.parse_list()),
@@ -592,7 +575,7 @@ mod tests {
             let output = Parser::new(ParserInput::TokenList(Rc::new([Token::Number(input)])))
                 .parse_token()
                 .unwrap();
-            assert_eq!(output, Expr::Number(NumberExpr { num: input }));
+            assert_eq!(output, Expr::Number(NumberExpr { num: OrderedFloat::from(input) }));
         }
     }
     #[test]
@@ -620,21 +603,21 @@ mod tests {
         let test_output = [
             Expr::FnCall(ExprFnCall {
                 name: Rc::from("print"),
-                args: vec![Expr::Number(NumberExpr { num: 1.0 })],
+                args: vec![Expr::Number(NumberExpr { num: OrderedFloat::from(1.0) })],
             }),
             Expr::FnCall(ExprFnCall {
                 name: Rc::from("print"),
                 args: vec![Expr::FnCall(ExprFnCall {
                     name: Rc::from("add"),
                     args: vec![
-                        Expr::Number(NumberExpr { num: 1.0 }),
-                        Expr::Number(NumberExpr { num: 2.0 }),
+                        Expr::Number(NumberExpr { num: OrderedFloat::from(1.0) }),
+                        Expr::Number(NumberExpr { num: OrderedFloat::from(2.0) }),
                     ],
                 })],
             }),
             Expr::FnCall(ExprFnCall {
                 name: Rc::from("print"),
-                args: vec![Expr::Map(vec![])],
+                args: vec![Expr::Map(BTreeMap::new())],
             }),
             Expr::FnCall(ExprFnCall {
                 name: Rc::from("print"),
@@ -653,7 +636,7 @@ mod tests {
     #[test]
     pub fn test_assignment() {
         let test_input: Vec<Rc<[Token]>> = vec![Rc::from([Token::Symbol(Rc::from("test")), Token::Equal, Token::Number(1.0)])];
-        let expected_output = vec![Expr::VarDecl(Box::from(Expr::Symbol(Rc::from("test"))), Box::from(Expr::Number(NumberExpr { num: 1.0 })))];
+        let expected_output = vec![Expr::VarDecl(Box::from(Expr::Symbol(Rc::from("test"))), Box::from(Expr::Number(NumberExpr { num: OrderedFloat::from(1.0) })))];
 
         for (i, input) in test_input.into_iter().enumerate() {
             let output = Parser::new(ParserInput::TokenList(input))
@@ -729,7 +712,7 @@ mod tests {
             Expr::List(vec![]),
             Expr::List(vec![Expr::List(vec![])]),
             Expr::List(vec![
-                Expr::Number(NumberExpr { num: 1.0 }),
+                Expr::Number(NumberExpr { num: OrderedFloat::from(1.0) }),
                 Expr::Symbol(Rc::from("test")),
             ]),
         ];
@@ -762,18 +745,18 @@ mod tests {
         ];
 
         let test_output = [
-            Expr::Map(vec![]),
-            Expr::Map(vec![MapAttrExpr {
-                key: Expr::Symbol(Rc::from("test")),
-                value: Expr::Number(NumberExpr { num: 1.0 }),
-            }]),
-            Expr::Map(vec![MapAttrExpr {
-                key: Expr::Symbol(Rc::from("test")),
-                value: Expr::Map(vec![MapAttrExpr {
-                    key: Expr::Symbol(Rc::from("id")),
-                    value: Expr::Number(NumberExpr { num: 1.0 }),
-                }]),
-            }]),
+            Expr::Map(BTreeMap::new()),
+            Expr::Map(BTreeMap::from([(
+                Expr::Symbol(Rc::from("test")),
+                 Expr::Number(NumberExpr { num: OrderedFloat::from(1.0) }),
+            )])),
+            Expr::Map(BTreeMap::from([(
+                Expr::Symbol(Rc::from("test")),
+                Expr::Map(BTreeMap::from([(
+                    Expr::Symbol(Rc::from("id")),
+                    Expr::Number(NumberExpr { num: OrderedFloat::from(1.0) }),
+                )])),
+            )])),
         ];
 
         for (i, input) in test_input.into_iter().enumerate() {
@@ -795,7 +778,7 @@ mod tests {
 
         let test_output = [Expr::ListRef(
             Rc::from(Expr::Symbol(Rc::from("test"))),
-            NumberExpr { num: 1.0 },
+            NumberExpr { num: OrderedFloat::from(1.0) },
         )];
 
         for (i, input) in test_input.into_iter().enumerate() {

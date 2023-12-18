@@ -1,6 +1,7 @@
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::rc::Rc;
-use svsm::parser::{Parser, Expr, NumberExpr, MapAttrExpr, ExprFnCall};
+use svsm::parser::{Parser, Expr, NumberExpr, ExprFnCall};
 use svsm::lex::{Lexer, Token};
 
 #[test]
@@ -26,7 +27,7 @@ fn simple_output_no_whitespace() {
         Expr::ListRef(Rc::from(Expr::Symbol(Rc::from("c"))), NumberExpr::from_number(1.0)),
         Expr::ListRef(Rc::from(Expr::Symbol(Rc::from("d"))), NumberExpr::from_number(1.0)),
         Expr::List(Vec::from([Expr::Number(NumberExpr::from_number(1.0)), Expr::Number(NumberExpr::from_number(2.0))])),
-        Expr::Map(Vec::from([MapAttrExpr::new(Expr::Symbol(Rc::from("e")), Expr::Number(NumberExpr::from_number(1.0)))])),
+        Expr::Map(BTreeMap::from([(Expr::Symbol(Rc::from("e")), Expr::Number(NumberExpr::from_number(1.0)))])),
     ]);
 
     let output = parser.parse_input();
@@ -86,30 +87,24 @@ fn complex_output_no_whitespace() {
     let mut parser = Parser::from_token_list(lexer_output);
     let parser_expected = Rc::from(vec![
         Expr::VarDecl(Box::from(Expr::MapRef(Rc::from(Expr::Symbol(Rc::from("system"))), Box::from(Expr::Symbol(Rc::from("config"))))),
-        Box::from(Expr::Map(vec![
-            MapAttrExpr {
-                key: Expr::Symbol(Rc::from("users")),
-                value: Expr::List(vec![
-                    Expr::Map(vec![
-                        MapAttrExpr {
-                            key: Expr::Symbol(Rc::from("username")),
-                            value: Expr::String(Rc::from("'sapeint'")),
-                        },
-                        MapAttrExpr {
-                            key: Expr::Symbol(Rc::from("homedir")),
-                            value: Expr::Map(vec![
-                                MapAttrExpr {
-                                    key: Expr::Symbol(Rc::from("subdirs")),
-                                    value: Expr::List(vec![
-                                        Expr::Path(PathBuf::from("./library")),
-                                        Expr::Path(PathBuf::from("./games/launchers")),
-                                    ])
-                                }
-                            ])
-                        },
-                        MapAttrExpr {
-                            key: Expr::Symbol(Rc::from("dotfiles")),
-                            value: Expr::FnCall(
+        Box::from(Expr::Map(BTreeMap::from([
+            (
+                Expr::Symbol(Rc::from("users")),
+                Expr::List(vec![
+                    Expr::Map(BTreeMap::from([
+                        (Expr::Symbol(Rc::from("username")),
+                         Expr::String(Rc::from("'sapeint'")),),
+                        (Expr::Symbol(Rc::from("homedir")),
+                         Expr::Map(BTreeMap::from([
+                             (Expr::Symbol(Rc::from("subdirs")),
+                              Expr::List(vec![
+                                  Expr::Path(PathBuf::from("./library")),
+                                  Expr::Path(PathBuf::from("./games/launchers")),
+                              ]))
+                            ]))
+                        ),
+                        (Expr::Symbol(Rc::from("dotfiles")),
+                         Expr::FnCall(
                                 ExprFnCall {
                                     name: Rc::from("gh-r"),
                                     args: vec![
@@ -118,62 +113,58 @@ fn complex_output_no_whitespace() {
                                     ]
                                 }
                             )
-                        },
-                        MapAttrExpr {
-                            key: Expr::Symbol(Rc::from("packages")),
-                            value: Expr::List(vec![
-                                Expr::Symbol(Rc::from("i3status")),
-                                Expr::Symbol(Rc::from("i3lock")),
-                                Expr::Symbol(Rc::from("dmenu")),
-                                Expr::Symbol(Rc::from("firefox")),
-                                Expr::FnCall(ExprFnCall {
-                                    name: Rc::from("i3"),
-                                    args: vec![
-                                        Expr::Map(vec![
-                                            MapAttrExpr {
-                                                key: Expr::Symbol(Rc::from("config")),
-                                                value: Expr::FnCall(ExprFnCall {
-                                                    name: Rc::from("use_file"),
-                                                    args: vec![
-                                                        Expr::Path(PathBuf::from("./i3/config")),
-                                                        Expr::FnCall(ExprFnCall {
-                                                            name: Rc::from("gh-r"),
-                                                            args: vec![
-                                                                Expr::String(Rc::from("'sapein'")),
-                                                                Expr::String(Rc::from("'dotfiles'")),
-                                                            ]
-                                                        })
-                                                    ]
-                                                }),
-                                            }
-                                        ])]
+                        ),
+                        (Expr::Symbol(Rc::from("packages")),
+                         Expr::List(vec![
+                             Expr::Symbol(Rc::from("i3status")),
+                             Expr::Symbol(Rc::from("i3lock")),
+                             Expr::Symbol(Rc::from("dmenu")),
+                             Expr::Symbol(Rc::from("firefox")),
+                             Expr::FnCall(ExprFnCall {
+                                 name: Rc::from("i3"),
+                                 args: vec![
+                                     Expr::Map(BTreeMap::from([
+                                         (Expr::Symbol(Rc::from("config")),
+                                          Expr::FnCall(ExprFnCall {
+                                              name: Rc::from("use_file"),
+                                              args: vec![
+                                                  Expr::Path(PathBuf::from("./i3/config")),
+                                                  Expr::FnCall(ExprFnCall {
+                                                      name: Rc::from("gh-r"),
+                                                      args: vec![
+                                                          Expr::String(Rc::from("'sapein'")),
+                                                          Expr::String(Rc::from("'dotfiles'")),
+                                                      ]
+                                                  })
+                                              ]
+                                          }),
+                                         )
+                                     ]))]
                                 }),
                                 Expr::FnCall(ExprFnCall {
                                     name: Rc::from("discord"),
                                     args: vec![
-                                        Expr::Map(vec![
-                                            MapAttrExpr {
-                                                key: Expr::Symbol(Rc::from("repository")),
-                                                value: Expr::Symbol(Rc::from("personal"))
-                                            }])]
+                                        Expr::Map(BTreeMap::from([
+                                            (Expr::Symbol(Rc::from("repository")),
+                                             Expr::Symbol(Rc::from("personal"))
+                                            )
+                                        ]))
+                                    ]
                                 })
                             ]),
-                        },
-                    ])
+                        ),
+                    ]))
                 ]),
-            },
-            MapAttrExpr {
-                key: Expr::Symbol(Rc::from("services")),
-                value: Expr::List(vec![
-                    Expr::Map(vec![
-                        MapAttrExpr {
-                            key: Expr::Symbol(Rc::from("name")),
-                            value: Expr::Symbol(Rc::from("sshd")),
-                        }
-                    ])
+            ),
+            (Expr::Symbol(Rc::from("services")),
+             Expr::List(vec![
+                 Expr::Map(BTreeMap::from([
+                     (Expr::Symbol(Rc::from("name")),
+                      Expr::Symbol(Rc::from("sshd")),)
+                    ]))
                 ])
-            }
-        ]))
+            )
+        ])))
         ),
     ]);
 
@@ -205,7 +196,7 @@ fn simple_output() {
         Expr::ListRef(Rc::from(Expr::Symbol(Rc::from("c"))), NumberExpr::from_number(1.0)),
         Expr::ListRef(Rc::from(Expr::Symbol(Rc::from("d"))), NumberExpr::from_number(1.0)),
         Expr::List(Vec::from([Expr::Number(NumberExpr::from_number(1.0)), Expr::Number(NumberExpr::from_number(2.0))])),
-        Expr::Map(Vec::from([MapAttrExpr::new(Expr::Symbol(Rc::from("e")), Expr::Number(NumberExpr::from_number(1.0)))])),
+        Expr::Map(BTreeMap::from([(Expr::Symbol(Rc::from("e")), Expr::Number(NumberExpr::from_number(1.0)))])),
     ]);
 
     let output = parser.parse_input();
@@ -242,94 +233,81 @@ fn complex_output() {
     let mut parser = Parser::from_token_list_smart(lexer_output);
     let parser_expected = Rc::from(vec![
         Expr::VarDecl(Box::from(Expr::MapRef(Rc::from(Expr::Symbol(Rc::from("system"))), Box::from(Expr::Symbol(Rc::from("config"))))),
-                      Box::from(Expr::Map(vec![
-                          MapAttrExpr {
-                              key: Expr::Symbol(Rc::from("users")),
-                              value: Expr::List(vec![
-                                  Expr::Map(vec![
-                                      MapAttrExpr {
-                                          key: Expr::Symbol(Rc::from("username")),
-                                          value: Expr::String(Rc::from("'sapeint'")),
-                                      },
-                                      MapAttrExpr {
-                                          key: Expr::Symbol(Rc::from("homedir")),
-                                          value: Expr::Map(vec![
-                                              MapAttrExpr {
-                                                  key: Expr::Symbol(Rc::from("subdirs")),
-                                                  value: Expr::List(vec![
-                                                      Expr::Path(PathBuf::from("./library")),
-                                                      Expr::Path(PathBuf::from("./games/launchers")),
-                                                  ])
-                                              }
-                                          ])
-                                      },
-                                      MapAttrExpr {
-                                          key: Expr::Symbol(Rc::from("dotfiles")),
-                                          value: Expr::FnCall(
-                                              ExprFnCall {
-                                                  name: Rc::from("gh-r"),
-                                                  args: vec![
-                                                      Expr::String(Rc::from("'sapein'")),
-                                                      Expr::String(Rc::from("'dotfiles'")),
-                                                  ]
-                                              }
-                                          )
-                                      },
-                                      MapAttrExpr {
-                                          key: Expr::Symbol(Rc::from("packages")),
-                                          value: Expr::List(vec![
-                                              Expr::Symbol(Rc::from("i3status")),
-                                              Expr::Symbol(Rc::from("i3lock")),
-                                              Expr::Symbol(Rc::from("dmenu")),
-                                              Expr::Symbol(Rc::from("firefox")),
-                                              Expr::FnCall(ExprFnCall {
-                                                  name: Rc::from("i3"),
-                                                  args: vec![
-                                                      Expr::Map(vec![
-                                                          MapAttrExpr {
-                                                              key: Expr::Symbol(Rc::from("config")),
-                                                              value: Expr::FnCall(ExprFnCall {
-                                                                  name: Rc::from("use_file"),
-                                                                  args: vec![
-                                                                      Expr::Path(PathBuf::from("./i3/config")),
-                                                                      Expr::FnCall(ExprFnCall {
-                                                                          name: Rc::from("gh-r"),
-                                                                          args: vec![
-                                                                              Expr::String(Rc::from("'sapein'")),
-                                                                              Expr::String(Rc::from("'dotfiles'")),
-                                                                          ]
-                                                                      })
-                                                                  ]
-                                                              }),
-                                                          }
-                                                      ])]
+                      Box::from(Expr::Map(BTreeMap::from([
+                          (Expr::Symbol(Rc::from("users")),
+                           Expr::List(vec![
+                               Expr::Map(BTreeMap::from([
+                                   (Expr::Symbol(Rc::from("username")),
+                                    Expr::String(Rc::from("'sapeint'"))),
+                                   (Expr::Symbol(Rc::from("homedir")),
+                                    Expr::Map(BTreeMap::from([
+                                        (Expr::Symbol(Rc::from("subdirs")),
+                                         Expr::List(vec![
+                                             Expr::Path(PathBuf::from("./library")),
+                                             Expr::Path(PathBuf::from("./games/launchers")),
+                                         ])
+                                        )
+                                    ]))
+                                   ),
+                                   (Expr::Symbol(Rc::from("dotfiles")),
+                                    Expr::FnCall(
+                                        ExprFnCall {
+                                            name: Rc::from("gh-r"),
+                                            args: vec![
+                                                Expr::String(Rc::from("'sapein'")),
+                                                Expr::String(Rc::from("'dotfiles'")),
+                                            ]
+                                        }
+                                    )),
+                                   (Expr::Symbol(Rc::from("packages")),
+                                    Expr::List(vec![
+                                        Expr::Symbol(Rc::from("i3status")),
+                                        Expr::Symbol(Rc::from("i3lock")),
+                                        Expr::Symbol(Rc::from("dmenu")),
+                                        Expr::Symbol(Rc::from("firefox")),
+                                        Expr::FnCall(ExprFnCall {
+                                            name: Rc::from("i3"),
+                                            args: vec![
+                                                Expr::Map(BTreeMap::from([
+                                                    (Expr::Symbol(Rc::from("config")),
+                                                     Expr::FnCall(ExprFnCall {
+                                                         name: Rc::from("use_file"),
+                                                         args: vec![
+                                                             Expr::Path(PathBuf::from("./i3/config")),
+                                                             Expr::FnCall(ExprFnCall {
+                                                                 name: Rc::from("gh-r"),
+                                                                 args: vec![
+                                                                     Expr::String(Rc::from("'sapein'")),
+                                                                     Expr::String(Rc::from("'dotfiles'")),
+                                                                 ]
+                                                             })
+                                                         ]
+                                                     }),
+                                                    )
+                                                ]))]
                                               }),
                                               Expr::FnCall(ExprFnCall {
                                                   name: Rc::from("discord"),
                                                   args: vec![
-                                                      Expr::Map(vec![
-                                                          MapAttrExpr {
-                                                              key: Expr::Symbol(Rc::from("repository")),
-                                                              value: Expr::Symbol(Rc::from("personal"))
-                                                          }])]
+                                                      Expr::Map(BTreeMap::from([
+                                                          (Expr::Symbol(Rc::from("repository")),
+                                                           Expr::Symbol(Rc::from("personal")))]))
+                                                  ]
                                               })
                                           ]),
-                                      },
-                                  ])
+                                      ),
+                                  ]))
                               ]),
-                          },
-                          MapAttrExpr {
-                              key: Expr::Symbol(Rc::from("services")),
-                              value: Expr::List(vec![
-                                  Expr::Map(vec![
-                                      MapAttrExpr {
-                                          key: Expr::Symbol(Rc::from("name")),
-                                          value: Expr::Symbol(Rc::from("sshd")),
-                                      }
-                                  ])
-                              ])
-                          }
-                      ]))
+                          ),
+                          (Expr::Symbol(Rc::from("services")),
+                           Expr::List(vec![
+                               Expr::Map(BTreeMap::from([
+                                   (Expr::Symbol(Rc::from("name")),
+                                    Expr::Symbol(Rc::from("sshd")),)
+                               ]))
+                           ])
+                          )
+                      ])))
         ),
     ]);
 

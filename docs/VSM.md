@@ -155,8 +155,10 @@ As VSL/VSM does not have an inbuilt function definition or declaration syntax, t
 
 `add_line line: string`
 
+`home path_relative -> Path`
 
-`replace original: string, replacement: string`
+
+`replace original: string, replacement: string, string: string -> string`
 
 
 `remove original: string, replacement: string`
@@ -165,7 +167,7 @@ As VSL/VSM does not have an inbuilt function definition or declaration syntax, t
 `use_file to_use: path, repo: Option<repo>`
 
 
-`join strings: [string] -> string`
+`join char: string, strings: [string] -> string`
 
 `print string: [string]`
 
@@ -178,7 +180,7 @@ system.config = {
 
     vp_repos = {
         personal = {
-            url = (vp-r 'sapein');
+            location = (vp-r 'sapein');
             branch = 'personal';
             allow_restricted = true;
         };

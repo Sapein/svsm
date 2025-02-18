@@ -43,6 +43,12 @@ pub struct SmartToken {
     pub token: Token,
 }
 
+impl SmartToken {
+    pub fn get_token(&self) -> Rc<String> {
+        self.token.get_token()
+    }
+}
+
 /// Representation of a valid Token
 #[derive(Debug, PartialEq, Clone)]
 pub enum Token {
@@ -66,6 +72,34 @@ pub enum Token {
 
     /// An 'empty' Token that may be generated.
     Discard,
+}
+
+impl Token {
+    pub fn get_token(&self) -> Rc<String> {
+        Rc::from(match self {
+            Token::String(token) => token.to_string(),
+            Token::Boolean(token) => match token {
+                true => "true",
+                false => "false",
+            }.into(),
+            Token::Number(token) => token.to_string(),
+            Token::Symbol(token) => token.to_string(),
+            Token::Semicolon => ";".into(),
+            Token::Comma => ",".into(),
+            Token::OpenBrace => "{".into(),
+            Token::CloseBrace => "}".into(),
+            Token::OpenBracket => "[".into(),
+            Token::CloseBracket => "]".into(),
+            Token::OpenParen => "(".into(),
+            Token::CloseParen => ")".into(),
+            Token::Equal => "=".into(),
+            Token::Dot => ".".into(),
+            Token::Slash => "/".into(),
+            Token::Whitespace => "[WHITESPACE]".into(),
+            Token::EoF => "[EOF]".into(),
+            Token::Discard => "[DISCARD]".into(),
+        })
+    }
 }
 
 

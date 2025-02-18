@@ -1,16 +1,33 @@
+//! VSL Interpreter for SVSM.
+//!
+//! This provides a relatively basic parser for SVSM to use
+//! to understand it's language (VSL).
+//!
+//! # Examples
+//! ```
+//! use std::rc::Rc;
+//! let mut interpreter = svsm::interpreter::Interpreter::new_vector_ast(vec![svsm::parser::Expr::String(Rc::from("A string"))]);
+//! println!("Output: {:?}" , interpreter.eval());
+//! ```
 use std::collections::BTreeMap;
 use std::rc::Rc;
-use crate::parser::{Expr, FnResultExpr};
+use crate::actions::Action;
+use crate::parser::{Callable, Expr, FnResultExpr};
 
 mod builtins;
+pub mod system_converter;
 
 pub struct Interpreter {
     input: InterpreterInput,
     pos: usize,
 
-    // this exists mostly to allow us to disable lazy eval for automated testing purposes. It changes very little else.
-    // this should, broadly, never be actually set for non-testing code.
+    // this exists mostly to allow us to disable lazy eval for automated testing purposes. 
+    // It changes very little else. // this should, broadly, never be actually set for non-testing
+    // code.
+    // 
+    // The only change with this is that FnResults are immediately evaluated.
     pub(crate) disable_lazy: bool,
+    pub(crate) actions: Vec<Action>,
 
     pub(crate) env: Box<Env>,
 }
@@ -28,6 +45,7 @@ impl Env {
             parent: None
         }
     }
+    
 
     pub fn add_parent(self, parent: &Self) -> Self {
         Env {
@@ -53,7 +71,9 @@ impl Env {
 
     pub fn add_variable(&mut self, name: Expr, value: Expr) -> &Self {
         match name {
-            Expr::Symbol(symbol) => {self.variables.insert(symbol, value);},
+            Expr::Symbol(symbol) => {
+                self.variables.insert(symbol, value);
+            },
             Expr::MapRef(name, attr) => {
                 match &*name {
                     Expr::Symbol(name) => if let Some(map) = self.get_variable(&name) {
@@ -65,7 +85,7 @@ impl Env {
                             _ => panic!("You can't do attr access on a non-map type!"),
                         }
                     } else {
-                        panic!("Map {} does not exist!", name);
+                        panic!("Map {} does not exist in env: {:?}!", name, self.variables);
                     },
                     _ => panic!("Variable must be symbol!"),
                 }
@@ -95,7 +115,7 @@ impl Env {
     pub fn find_variable(&self, name: &Rc<str>) -> Expr {
         match self.get_variable(name) {
             Some(t) => t,
-            None => panic!("Variable not found!"),
+            None => panic!("Variable with name {} not found!", name),
         }
     }
 }
@@ -113,10 +133,28 @@ impl Interpreter {
 
            disable_lazy: false,
 
+           actions: vec![],
            env: Box::from(Env::new()),
        }
     }
-
+    
+    pub fn create_standard_env(mut self) -> Self {
+        self.env.add_variable(Expr::Symbol(Rc::from("system")), Expr::Map(BTreeMap::new()));
+        self.env.add_variable(Expr::Symbol(Rc::from("print")), Expr::Builtin(builtins::print));
+        
+        self.env.add_variable(Expr::Symbol(Rc::from("gh-r")), Expr::Builtin(builtins::github_repo));
+        self.env.add_variable(Expr::Symbol(Rc::from("vp-r")), Expr::Builtin(builtins::voidpackages_repo));
+        
+        self.env.add_variable(Expr::Symbol(Rc::from("github-repo")), Expr::Builtin(builtins::github_repo));
+        self.env.add_variable(Expr::Symbol(Rc::from("voidpackages-repo")), Expr::Builtin(builtins::voidpackages_repo));
+        
+        self.env.add_variable(Expr::Symbol(Rc::from("home")), Expr::Builtin(builtins::todo_fn));
+        self.env.add_variable(Expr::Symbol(Rc::from("replace")), Expr::Builtin(builtins::todo_fn));
+        self.env.add_variable(Expr::Symbol(Rc::from("use_file")), Expr::Builtin(builtins::todo_fn));
+        self.env.add_variable(Expr::Symbol(Rc::from("join")), Expr::Builtin(builtins::todo_fn));
+        self
+    }
+    
     pub fn new(input: Rc<[Expr]>) -> Self {
         Self {
             input: InterpreterInput::ArrAst(input),
@@ -124,6 +162,7 @@ impl Interpreter {
 
             disable_lazy: false,
 
+            actions: vec![],
             env: Box::from(Env::new()),
         }
     }
@@ -152,13 +191,15 @@ impl Interpreter {
     }
 
     pub fn eval(&mut self) -> Option<Expr> {
-        self.eval_(self.get_input())
+        eval(self.get_input(), &mut self.env, self.disable_lazy)
     }
 
-    pub fn eval_(&mut self, input: Expr) -> Option<Expr> {
+    pub fn eval_input(&mut self, input: Expr) -> Option<Expr> {
         eval(input, &mut self.env, self.disable_lazy)
     }
 }
+
+
 pub fn eval(input: Expr, env: &mut Env, disable_lazy: bool) -> Option<Expr> {
     match input {
         Expr::VarDecl(name, value) => {
@@ -181,6 +222,7 @@ pub fn eval(input: Expr, env: &mut Env, disable_lazy: bool) -> Option<Expr> {
                 _ => panic!("Unable to list access into a non-list!"),
             }
         },
+
         Expr::MapRef(sym, attr) => {
             let value = env.find_variable_with_expr(&sym);
             match value {
@@ -196,26 +238,33 @@ pub fn eval(input: Expr, env: &mut Env, disable_lazy: bool) -> Option<Expr> {
 
         Expr::FnResult(expr) => {
             let FnResultExpr { function: f, args, env } = expr;
-            f(args, &mut env.clone())
+            match f {
+                Callable::Builtin(f) => f(args, &mut env.clone()),
+                Callable::Macro(_) => todo!()
+            }
         },
+        
         Expr::FnCall(fncall) => {
             let function = env.find_variable(&fncall.name);
             match function {
                 Expr::Builtin(cb) => {
                     if disable_lazy {
                         eval(Expr::FnResult(FnResultExpr {
-                            function: cb,
+                            function: Callable::Builtin(cb),
                             args: fncall.args,
                             env: env.clone(),
                         }), env, disable_lazy)
                     } else {
                         Some(Expr::FnResult(FnResultExpr {
-                            function: cb,
+                            function: Callable::Builtin(cb),
                             args: fncall.args,
                             env: env.clone(),
                         }))
                     }
                 },
+                Expr::Macro(_) => {
+                    todo!("Macros not implemented")
+                }
                 Expr::FnResult(_) => panic!("FnResult attempted to be called!"),
                 _ => panic!("Attempted to call a non-function!"),
             }
@@ -303,7 +352,7 @@ mod tests {
         interpriter.disable_lazy = true;
         interpriter.env.add_variable(Expr::Symbol(Rc::from("gh-r")), Expr::Builtin(builtins::github_repo));
 
-        assert_eq!(interpriter.eval().unwrap(), Expr::GitHubRemote { user: Rc::from("test"), repo: Rc::from("test2")} );
+        assert_eq!(interpriter.eval().unwrap(), Expr::GitHubRemote { user: Rc::from("test"), repo: Rc::from("test2"), branch: None} );
     }
 
     #[test]
@@ -314,7 +363,7 @@ mod tests {
         interpriter.env.add_variable(Expr::Symbol(Rc::from("test")), Expr::String(Rc::from("test")));
         interpriter.env.add_variable(Expr::Symbol(Rc::from("test2")), Expr::String(Rc::from("test2")));
 
-        assert_eq!(interpriter.eval().unwrap(), Expr::GitHubRemote { user: Rc::from("test"), repo: Rc::from("test2")} );
+        assert_eq!(interpriter.eval().unwrap(), Expr::GitHubRemote { user: Rc::from("test"), repo: Rc::from("test2"), branch: None} );
     }
 
     #[test]
@@ -327,7 +376,7 @@ mod tests {
         interpriter.env.add_variable(Expr::Symbol(Rc::from("test3")), Expr::String(Rc::from("test2")));
 
 
-        assert_eq!(interpriter.eval().unwrap(), Expr::GitHubRemote { user: Rc::from("test"), repo: Rc::from("test2")} );
+        assert_eq!(interpriter.eval().unwrap(), Expr::GitHubRemote { user: Rc::from("test"), repo: Rc::from("test2"), branch: None} );
     }
 
     #[test]
@@ -337,7 +386,7 @@ mod tests {
         interpriter.env.add_variable(Expr::Symbol(Rc::from("gh-r")), Expr::Builtin(builtins::github_repo));
         interpriter.env.add_variable(Expr::Symbol(Rc::from("test")), Expr::String(Rc::from("test")));
 
-        assert_eq!(interpriter.eval().unwrap(), Expr::GitHubRemote { user: Rc::from("test"), repo: Rc::from("test2")} );
+        assert_eq!(interpriter.eval().unwrap(), Expr::GitHubRemote { user: Rc::from("test"), repo: Rc::from("test2"), branch: None} );
     }
 
     #[test]
@@ -348,5 +397,73 @@ mod tests {
         interpriter.env.add_variable(Expr::Symbol(Rc::from("gh-r")), Expr::Builtin(builtins::github_repo));
 
        interpriter.eval();
+    }
+    
+    #[test]
+    pub fn test_join() {
+        let mut interpriter = Interpreter::new_vector_ast(vec![Expr::FnCall(ExprFnCall { name: Rc::from("join"), args: vec![Expr::String(Rc::from(",")), Expr::List(vec![Expr::String(Rc::from("alpha")), Expr::String(Rc::from("beta")), Expr::Number(NumberExpr { num: 1.into()})])]})]);
+        interpriter.disable_lazy = true;
+        interpriter.env.add_variable(Expr::Symbol(Rc::from("join")), Expr::Builtin(builtins::join));
+
+        assert_eq!(interpriter.eval().unwrap(), Expr::String(Rc::from("alpha,beta,1")) );
+    }
+    
+    #[test]
+    pub fn test_join_sym() {
+        let mut interpriter = Interpreter::new_vector_ast(vec![Expr::FnCall(ExprFnCall { name: Rc::from("join"), args: vec![Expr::Symbol(Rc::from("test")), Expr::List(vec![Expr::String(Rc::from("alpha")), Expr::String(Rc::from("beta"))])]})]);
+        interpriter.disable_lazy = true;
+        interpriter.env.add_variable(Expr::Symbol(Rc::from("join")), Expr::Builtin(builtins::join));
+        interpriter.env.add_variable(Expr::Symbol(Rc::from("test")), Expr::String(Rc::from(",")));
+
+        assert_eq!(interpriter.eval().unwrap(), Expr::String(Rc::from("alpha,beta")) );
+    }
+    
+    #[test]
+    #[should_panic]
+    pub fn test_join_bad_arg1() {
+        let mut interpriter = Interpreter::new_vector_ast(vec![Expr::FnCall(ExprFnCall { name: Rc::from("join"), args: vec![Expr::Number(NumberExpr { num:1.into(), }), Expr::List(vec![Expr::String(Rc::from("alpha")), Expr::String(Rc::from("beta"))])]})]);
+        interpriter.disable_lazy = true;
+        interpriter.env.add_variable(Expr::Symbol(Rc::from("join")), Expr::Builtin(builtins::join));
+
+        interpriter.eval();
+    }
+    
+    #[test]
+    #[should_panic]
+    pub fn test_join_bad_args2() {
+        let mut interpriter = Interpreter::new_vector_ast(vec![Expr::FnCall(ExprFnCall { name: Rc::from("join"), args: vec![Expr::String(Rc::from(",")), Expr::Number(NumberExpr { num:1.into(), })]})]);
+        interpriter.disable_lazy = true;
+        interpriter.env.add_variable(Expr::Symbol(Rc::from("join")), Expr::Builtin(builtins::join));
+
+        interpriter.eval();
+    }
+    
+    #[test]
+    pub fn test_replace() {
+        let mut interpriter = Interpreter::new_vector_ast(vec![Expr::FnCall(ExprFnCall { name: Rc::from("replace"), args: vec![Expr::String(Rc::from(".")), Expr::String(Rc::from(",")), Expr::String(Rc::from("a.b"))]})]);
+        interpriter.disable_lazy = true;
+        interpriter.env.add_variable(Expr::Symbol(Rc::from("replace")), Expr::Builtin(builtins::replace));
+
+        assert_eq!(interpriter.eval().unwrap(), Expr::String(Rc::from("a,b")) );
+    }
+    
+    #[test]
+    #[should_panic]
+    pub fn test_replace_bad_arg1() {
+        let mut interpriter = Interpreter::new_vector_ast(vec![Expr::FnCall(ExprFnCall { name: Rc::from("replace"), args: vec![Expr::Boolean(true), Expr::String(Rc::from(",")), Expr::String(Rc::from("a.b"))]})]);
+        interpriter.disable_lazy = true;
+        interpriter.env.add_variable(Expr::Symbol(Rc::from("replace")), Expr::Builtin(builtins::replace));
+
+        interpriter.eval().unwrap();
+    }
+    
+    #[test]
+    #[should_panic]
+    pub fn test_replace_bad_arg2() {
+        let mut interpriter = Interpreter::new_vector_ast(vec![Expr::FnCall(ExprFnCall { name: Rc::from("replace"), args: vec![Expr::Symbol(Rc::from(".")), Expr::Boolean(true), Expr::String(Rc::from("a.b"))]})]);
+        interpriter.disable_lazy = true;
+        interpriter.env.add_variable(Expr::Symbol(Rc::from("replace")), Expr::Builtin(builtins::replace));
+
+        interpriter.eval().unwrap();
     }
 }

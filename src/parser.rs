@@ -1,11 +1,24 @@
+//! VSL Parser for SVSM.
+//!
+//! This provides a relatively basic parser for SVSM to use
+//! to understand it's language (VSL).
+//!
+//! # Examples
+//! ```
+//! use std::rc::Rc;
+//! let mut parser = svsm::parser::Parser::from_token_list(Rc::from([svsm::lex::Token::String(Rc::from("A string"))]));
+//! println!("Output: {:?}" , parser.parse_token());
+//! ```
+
 use std::collections::BTreeMap;
-use std::fmt::{Debug};
+use std::fmt::Debug;
 use crate::lex::{SmartToken, Token};
 use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
 use std::rc::Rc;
 use ordered_float::OrderedFloat;
-use crate::interpriter::{Env, Interpreter};
+use crate::actions::Action;
+use crate::interpreter::{Env, Interpreter};
 
 #[derive(Debug)]
 pub struct Parser {
@@ -29,29 +42,79 @@ pub enum Expr {
 
     GitHubRemote {
         user: Rc<str>,
-        repo: Rc<str>
+        repo: Rc<str>,
+        branch: Option<Rc<str>>,
     },
 
     List(Vec<Expr>),
     ListRef(Rc<Expr>, NumberExpr),
     Map(BTreeMap<Expr, Expr>),
     MapRef(Rc<Expr>, Box<Expr>),
+    Action(Action),
 
     FnCall(ExprFnCall),
     FnResult(FnResultExpr),
-
+    
     // Builtins obtain only the scope, it can not manipulate the interpreter state
     Builtin(Builtin),
 
-    //Macros represent builtins that obtains interpreter state
+    // Unlike Builtins, Macros obtain the entire interpreter state and may modify it.
     Macro(BuiltinMacro),
 }
 
+impl Expr {
+    pub(crate) fn symbol_from_str(str: &str) -> Expr {
+        Expr::Symbol(Rc::from(str))
+    }
+
+    pub(crate) fn string_from_str(str: &str) -> Expr {
+        Expr::String(Rc::from(str))
+    }
+    
+    pub(crate) fn to_string(&self) -> String {
+        match self {
+            Expr::String(str) => str.to_string(),
+            Expr::Number(number) => number.to_string(),
+            Expr::Boolean(bool) => bool.to_string(),
+            Expr::Symbol(sym) => sym.to_string(),
+            Expr::Path(path) => path.to_str().expect("Non utf-8 char").to_string(),
+            _ => panic!("Unable to convert to string."),
+        }
+    }
+
+    pub(crate) fn extract_str(self) -> Rc<str> {
+        match self {
+            Expr::String(str) => str,
+            Expr::Symbol(str) => str,
+            _ => panic!("Can't extract str! {:#?}", self),
+        }
+    }
+
+    pub(crate) fn get_map_value(&self, key: Expr) -> Option<&Expr> {
+        match self {
+            Expr::Map(map) => map.get(&key),
+            _ => None
+        }
+    }
+}
+
+/// This represents a future result of a Function Call that needs to be evaluated.
+/// 
+/// This is done mostly to allow the interpreter to use lazy evaluation. This works by storing
+/// the environment that existed at the time of the Function Call, the arguments, and the exact
+/// function. If the interpreter is being run with `disable_lazy` for testing, then this will
+/// be immediately evaluated.
 #[derive(Debug, PartialEq, PartialOrd, Ord, Eq, Hash, Clone)]
 pub struct FnResultExpr {
     pub(crate) env: Env,
     pub(crate) args: Vec<Expr>,
-    pub(crate) function: Builtin,
+    pub(crate) function: Callable,
+}
+
+#[derive(Debug, PartialEq, PartialOrd, Ord, Eq, Hash, Clone)]
+pub enum Callable {
+    Builtin(Builtin),
+    Macro(BuiltinMacro),
 }
 
 #[derive(Debug, PartialEq, PartialOrd, Ord, Eq, Clone)]
@@ -62,6 +125,9 @@ pub struct NumberExpr {
 impl NumberExpr {
     pub fn from_number(number: f64) -> Self {
         NumberExpr { num: OrderedFloat::from(number) }
+    }
+    pub fn to_string(&self) -> String {
+        self.num.to_string()
     }
 }
 
@@ -132,6 +198,25 @@ impl Parser {
         self.lookahead_tokens(1)
     }
 
+    fn look_behind(&mut self, count: usize) -> Token {
+        match &self.input {
+            ParserInput::TokenList(list) => {
+                if self.pos - count <= 0 {
+                    Token::EoF
+                } else {
+                    list[self.pos - count].clone()
+                }
+            }
+            ParserInput::SmartTokenList(list) => {
+                if self.pos - count <= 0 {
+                    Token::EoF
+                } else {
+                    list[self.pos - count].token.clone()
+                }
+            }
+        }
+    }
+    
     fn lookahead_tokens(&mut self, count: usize) -> Token {
         match &self.input {
             ParserInput::TokenList(list) => {
@@ -261,7 +346,7 @@ impl Parser {
             .unwrap();
             list.push(expr);
         }
-
+        self.pos -= 1;
         Expr::List(list)
     }
 
@@ -324,18 +409,28 @@ impl Parser {
                     self.advance();
                     break;
                 }
-                Token::Semicolon => continue,
+                Token::Semicolon => {
+                    continue
+                }
                 Token::Symbol(sym) if self.peek_discard_whitespace() == Token::Equal => {
                     self.advance_skip_whitespace();
                     self.advance_skip_whitespace();
-                    (Expr::Symbol(sym), self.parse_token().unwrap())
+                    let token = self.parse_token();
+                    match token {
+                        None => continue,
+                        Some(t) => (Expr::Symbol(sym), t)
+                    }
                 }
                 Token::Whitespace => continue,
+                Token::Comma => continue,
+                Token::CloseBracket => {
+                    break;
+                }
                 _ => {
                     if self.is_smarttoken() {
                         let (row, col) = self.get_token_position();
                         let (col_start, col_end) = col.unwrap();
-                        panic!("Unknown symbol {:?} at key position in map at row {}, column: ({}, {})", self.get_token(), row, col_start, col_end)
+                        panic!("Unknown symbol {:?} ({}), at key position in map at row {}, column: ({}, {})", self.get_token(), self.get_token().get_token(), row, col_start, col_end)
                     }
                     panic!("Unknown symbol at key position in map!")
                 }
@@ -412,6 +507,7 @@ impl Parser {
         self.advance_skip_whitespace();
         Expr::VarDecl(Box::from(symbol), Box::from(self.parse_token().unwrap()))
     }
+    
 
     fn parse_symbol(&mut self, symbol: Rc<str>) -> Expr {
         self.advance_skip_whitespace();
@@ -454,7 +550,7 @@ impl Parser {
                     _ => map_ref,
                 }
             },
-            Token::OpenBracket => {
+            Token::OpenBracket if self.look_behind(1) != Token::Whitespace => {
                 let list_ref = match self.peek_token() {
                     Token::Number(i) if self.lookahead_tokens(2) == Token::CloseBracket => self.parse_listref(symbol, i),
                     Token::Number(i) if self.lookahead_tokens(2) != Token::Comma => panic!("Malformed List or ListRef! {}[{}", symbol, i),
@@ -462,7 +558,7 @@ impl Parser {
                         self.pos -= 1;
                         return self.parse_fncall(symbol);
                     }
-                    _ if self.lookahead_tokens(2) != Token::Comma => panic!("Malformed List or ListRef!"),
+                    _ if self.lookahead_tokens(2) != Token::Comma => panic!("Malformed List or ListRef! {}. Peeked: {:?} ; Lookahead: {:?}", symbol, self.peek_token(), self.lookahead_tokens(2)),
                     _ => panic!("List panic!"),
                 };
 
@@ -478,7 +574,8 @@ impl Parser {
             }
             _ => {
                 self.pos -= 1;
-                self.parse_fncall(symbol)
+                let res = self.parse_fncall(symbol.clone());
+                res
             },
         }
     }
@@ -517,9 +614,12 @@ impl Parser {
             Token::Dot if self.peek_token() == Token::Slash => Some(self.parse_path()),
             Token::OpenBracket => Some(self.parse_list()),
             Token::OpenBrace => Some(self.parse_map()),
+            Token::OpenParen => self.parse_parens().iter().map(|e| { e.to_owned() }).nth(1),
             Token::Symbol(sym) => Some(self.parse_symbol(sym)),
             Token::CloseBrace => None,
             Token::CloseParen => None,
+            Token::CloseBracket => None,
+            Token::Semicolon => None,
             Token::EoF => None,
             Token::Whitespace => {
                 self.advance_skip_whitespace();

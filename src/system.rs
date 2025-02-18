@@ -1,89 +1,79 @@
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::rc::Rc;
 
+
+/// This is designed to represent the world/system in SVSM.
+/// This does not represent the base level `system` map, but
+/// represents the `system.config` and `system.current` values.
+#[derive(Debug, PartialEq)]
 pub(crate) struct System {
-    pub(crate) users: Vec<User>,
+    pub(crate) services: HashMap<Rc<str>, Service>,
+    pub(crate) repositories: HashMap<Rc<str>, PackageRepository>,
+    pub(crate) users: HashMap<Rc<str>, User>,
+    pub(crate) system_packages: Rc<str> //TODO: replace with actual data.
 }
 
-impl System {
-    pub fn new() -> Self {
-        Self {
-            users: Vec::new(),
-        }
-    }
-    pub fn add_user(self, user: User) -> Self {
-        let mut users = self.users;
-        users.push(user);
-
-        Self {
-            users,
-        }
-    }
+#[derive(Debug, PartialEq)]
+pub(crate) struct Service {
+    pub(crate) name: Rc<str>,
+    pub(crate) enabled: bool,
+    pub(crate) downed: bool
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, PartialEq, Clone, Eq, Hash, Ord, PartialOrd)]
+pub(crate) struct PackageRepository {
+    pub(crate) name: Option<Rc<str>>,
+    pub(crate) location: Source,
+    pub(crate) allow_restricted: bool,
+}
+
+#[derive(Debug, PartialEq, Clone, Eq, Hash, Ord, PartialOrd)]
+pub(crate) enum Source {
+    Remote(RemoteSource),
+    Local(LocalSource)
+}
+
+#[derive(Debug, PartialEq, Clone, Eq, Hash, Ord, PartialOrd)]
+pub(crate) enum RemoteSource {
+    GithubRemote {
+        user: Rc<str>,
+        repository_name: Rc<str>,
+        branch_name: Option<Rc<str>>,
+    },
+    GitRemote {
+        url: Rc<str>,
+        branch_name: Option<Rc<str>>,
+    },
+    VoidRemote(Rc<str>),
+    VoidRepo
+}
+
+#[derive(Debug, PartialEq, Clone, Eq, Hash, Ord, PartialOrd)]
+pub(crate) enum LocalSource {
+    Directory(PathBuf),
+    File(PathBuf),
+}
+
+#[derive(Debug, PartialEq)]
 pub(crate) struct User {
-    pub name: Rc<str>,
-    pub homedir: PathBuf,
+    pub(crate) username: Option<Rc<str>>,
+    pub(crate) homedir: HomeDirectory,
+    pub(crate) dotfiles: Option<Source>,
+    pub(crate) packages: HashMap<Rc<str>, Package>,
 
-    pub hashed_password: Option<Rc<str>>,
-
-    pub dotfiles: Option<FileSource>,
 }
 
-impl PartialEq for User {
-    fn eq(&self, other: &Self) -> bool {
-        self.name == other.name
+#[derive(Debug, PartialEq)]
+pub(crate) enum HomeDirectory {
+    Path {
+        location: PathBuf,
+        subdirs: Vec<PathBuf>,
     }
 }
 
-impl User {
-    pub fn is_different(&self, other: &Self) -> bool {
-        ! (self.name == other.name &&
-            self.homedir == other.homedir &&
-            self.hashed_password == other.hashed_password &&
-            self.dotfiles == other.dotfiles)
-    }
-}
-
-
-
-impl User {
-    pub fn new(name: &String) -> Self {
-        Self {
-            name: Rc::from(name.clone()),
-            homedir: PathBuf::from(String::from("/home/") + name),
-            hashed_password: None,
-            dotfiles: None,
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum FileSource {
-    GitHub(GithubRepo),
-    Local(PathBuf),
-    Remote(Rc<str>),
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct GithubRepo {
-    user: Rc<str>,
-    repo_name: Rc<str>,
-    branch: Option<Rc<str>>,
-}
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    pub fn two_plus_two() {
-        assert_eq!(2+2, 4)
-    }
-
-    #[test]
-    #[should_panic]
-    pub fn panic_two_plus_two() {
-        assert_eq!(2 + 2, 5)
-    }
+#[derive(Debug, PartialEq)]
+pub(crate) struct Package {
+    pub(crate) config: Option<PathBuf>,
+    pub(crate) repository: Source,
 }

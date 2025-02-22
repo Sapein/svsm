@@ -62,7 +62,7 @@ comment  := "#" .*;
 
 vardec   := (SYMBOL | mapref | listref) '=' expr;
 
-path     := abspath | relpath;
+path     := pathabs | pathrel;
 pathabs  :=  '/' ([^\s] | STRING | pathabs)*;
 pathrel  := './' ([^\s] | STRING | pathabs)*;
 

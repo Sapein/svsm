@@ -512,7 +512,7 @@ impl Parser {
     fn parse_symbol(&mut self, symbol: Rc<str>) -> Expr {
         self.advance_skip_whitespace();
         match self.get_token() {
-            Token::Semicolon | Token::Comma | Token::EoF => Expr::Symbol(symbol),
+            Token::Semicolon | Token::Comma | Token::CloseBrace | Token::CloseBracket | Token::EoF => Expr::Symbol(symbol),
             Token::Equal if self.parsing_map => Expr::Symbol(symbol),
             Token::Equal => {
                 self.parse_assignment(Expr::Symbol(symbol))

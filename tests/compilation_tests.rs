@@ -7,7 +7,7 @@ use svsm::parser::Parser;
 fn test_full() {
     let input_str = "
     system.config = {
-        services = [{name = sshd},];
+        services = [{name = sshd}];
 
         vp_repos = {
             personal = {
